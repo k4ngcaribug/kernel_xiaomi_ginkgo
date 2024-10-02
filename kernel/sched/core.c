@@ -2456,7 +2456,6 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 }
 
 #ifdef CONFIG_SCHED_BORE
-extern bool sched_bore;
 extern u8   sched_burst_fork_atavistic;
 extern uint sched_burst_cache_lifetime;
 
@@ -2469,9 +2468,10 @@ static void __init sched_init_bore(void) {
 	init_task.se.child_burst_last_cached = 0;
 }
 
-inline void sched_fork_bore(struct task_struct *p) {
+void inline sched_fork_bore(struct task_struct *p) {
 	p->se.burst_time = 0;
 	p->se.curr_burst_penalty = 0;
+	p->se.burst_score = 0;
 	p->se.child_burst_last_cached = 0;
 }
 
@@ -2533,7 +2533,7 @@ static void update_child_burst_topological(
 		dec = child;
 		while ((dcnt = count_child_tasks(dec)) == 1)
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
-
+		
 		if (!dcnt || !depth) {
 			if (!task_is_inheritable(dec)) continue;
 			cnt++;
@@ -2581,7 +2581,7 @@ static inline void inherit_burst(struct task_struct *p) {
 }
 
 static void sched_post_fork_bore(struct task_struct *p) {
-	if (p->sched_class == &fair_sched_class && likely(sched_bore))
+	if (p->sched_class == &fair_sched_class)
 		inherit_burst(p);
 	p->se.burst_penalty = p->se.prev_burst_penalty;
 }
@@ -2608,9 +2608,9 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->boost_expires        = 0;
 	p->boost_period         = 0;
 
-#ifdef CONFIG_SCHED_BORE
+	#ifdef CONFIG_SCHED_BORE
 	sched_fork_bore(p);
-#endif // CONFIG_SCHED_BORE
+	#endif // CONFIG_SCHED_BORE
 
 	INIT_LIST_HEAD(&p->se.group_node);
 
@@ -2865,7 +2865,6 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	put_cpu();
 	return 0;
 }
-
 
 void sched_post_fork(struct task_struct *p)
 {
@@ -6761,11 +6760,11 @@ void __init sched_init(void)
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
 
-#ifdef CONFIG_SCHED_BORE
-	sched_init_bore();
-	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 4.2.4 by Masahito Suzuki");
-#endif // CONFIG_SCHED_BORE
 	sched_clock_init();
+	#ifdef CONFIG_SCHED_BORE
+	sched_init_bore();
+	printk(KERN_INFO "BORE (Burst-Oriented Response Enhancer) CPU Scheduler modification 5.1.0 by Masahito Suzuki");
+	#endif // CONFIG_SCHED_BORE
 	wait_bit_init();
 
 	init_clusters();

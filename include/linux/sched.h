@@ -513,6 +513,7 @@ struct sched_entity {
 	u32				child_burst_cnt;
 	u64				child_burst_last_cached;
 #endif // CONFIG_SCHED_BORE
+
 	u64				nr_migrations;
 
 	struct sched_statistics		statistics;
