@@ -5,8 +5,8 @@
 # Copyright (C) 2023 Tejas Singh.
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="NakamaKernel-ginkgo-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="NakamaKernel-ginkgo-KSU-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
+ZIPNAME="NakamaKernel-X2-ginkgo-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="NakamaKernel-X2-ginkgo-KSU-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
 TC_DIR="/workspace/gitpod/tc/clang"
 GCC_64_DIR="/workspace/gitpod/tc/aarch64-linux-android-4.9"
 GCC_32_DIR="/workspace/gitpod/tc/arm-linux-androideabi-4.9"
@@ -56,7 +56,7 @@ echo -e "\nKSU Support, let's Make it On\n"
 curl -kLSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
-sed -i 's/CONFIG_LOCALVERSION="-NakamaKernel"/CONFIG_LOCALVERSION="-NakamaKernel-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
+sed -i 's/CONFIG_LOCALVERSION="-NakamaKernel-X2"/CONFIG_LOCALVERSION="-NakamaKernel-X2-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
 fi
