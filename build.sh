@@ -21,7 +21,7 @@ sudo -E apt-get -qq install bc python2 python3 python-is-python3
 # Check for essentials
 if ! [ -d "${TC_DIR}" ]; then
 echo "Clang not found! Cloning to ${TC_DIR}..."
-if ! git clone --depth=1 https://gitlab.com/Panchajanya1999/azure-clang -b main ${TC_DIR}; then
+if ! git clone --depth=1 https://gitlab.com/nekoprjkt/aosp-clang -b 17 ${TC_DIR}; then
 echo "Cloning failed! Aborting..."
 exit 1
 fi
