@@ -4,7 +4,7 @@
 ### AnyKernel setup
 # global properties
 properties() { '
-kernel.string=Nakama Kernel by AL @ telegram
+kernel.string=MerryGoo Kernel by k4ngcaribug @ telegram
 do.devicecheck=1
 do.modules=1
 do.systemless=0
@@ -15,7 +15,7 @@ device.name2=ginkgo
 device.name3=willow
 device.name4=
 device.name5=
-supported.versions=8 - 15
+supported.versions=13
 supported.patchlevels=
 supported.vendorpatchlevels=
 '; } # end properties

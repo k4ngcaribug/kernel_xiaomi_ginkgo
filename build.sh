@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# Compile script for Cuh kernel
 # Copyright (C) 2020-2023 Adithya R.
 # Copyright (C) 2023 Tejas Singh.
+# Copyright (C) 2023 k4ngcaribug.
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="Nightmare-v3.0-ginkgo-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="Nightmare-v3.0-ginkgo-KSU-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
+ZIPNAME="MerryGoo-Ginkgo-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="MerryGoo-Ginkgo-KSU-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
 TC_DIR="/workspace/gitpod/tc/clang"
 GCC_64_DIR="/workspace/gitpod/tc/aarch64-linux-android-4.9"
 GCC_32_DIR="/workspace/gitpod/tc/arm-linux-androideabi-4.9"
@@ -56,7 +56,7 @@ echo -e "\nKSU Support, let's Make it On\n"
 curl -kLSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
-sed -i 's/CONFIG_LOCALVERSION="-Nightmare-v3.0"/CONFIG_LOCALVERSION="-Nightmare-v3.0-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
+sed -i 's/CONFIG_LOCALVERSION="-MerryGoo-Ginkgo"/CONFIG_LOCALVERSION="-MerryGoo-Ginkgo-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
 fi
