@@ -93,3 +93,4 @@ echo "Zip: $ZIPNAME_KSU"
 else
 echo "Zip: $ZIPNAME"
 fi
+git restore .
