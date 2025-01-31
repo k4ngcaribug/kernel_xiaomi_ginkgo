@@ -129,3 +129,8 @@ kernel/configs/android-*.cfg
 out/
 *.zip
 error.log
+AnyKernel3
+
+# Ignore KernelSU folders
+KernelSU-Next/
+drivers/kernelsu
