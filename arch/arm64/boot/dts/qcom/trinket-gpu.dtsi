@@ -211,7 +211,7 @@
 			/* SVS_L1 */
 			qcom,gpu-pwrlevel@4 {
 				reg = <4>;
-				qcom,gpu-freq = <600000000>;
+				qcom,gpu-freq = <650000000>;
 				qcom,bus-freq = <8>;
 				qcom,bus-min = <7>;
 				qcom,bus-max = <9>;
@@ -220,7 +220,7 @@
 			/* SVS */
 			qcom,gpu-pwrlevel@5 {
 				reg = <5>;
-				qcom,gpu-freq = <465000000>;
+				qcom,gpu-freq = <560000000>;
 				qcom,bus-freq = <7>;
 				qcom,bus-min = <6>;
 				qcom,bus-max = <8>;
@@ -229,7 +229,7 @@
 			/* LOW SVS */
 			qcom,gpu-pwrlevel@6 {
 				reg = <6>;
-				qcom,gpu-freq = <320000000>;
+				qcom,gpu-freq = <465000000>;
 				qcom,bus-freq = <6>;
 				qcom,bus-min = <5>;
 				qcom,bus-max = <7>;
