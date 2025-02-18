@@ -5800,9 +5800,23 @@ CONFIG_SG_POOL=y
 CONFIG_ARCH_HAS_SG_CHAIN=y
 CONFIG_SBITMAP=y
 # CONFIG_STRING_SELFTEST is not set
+<<<<<<< HEAD
 #
 # enable KernelSU + SuSFS 1.5.3+
 #
+=======
+
+# Oneplus bullshit rocketplay your fuckery experience
+CONFIG_OPCHAIN=y
+CONFIG_SMARTBOOST=y
+CONFIG_DEFRAG_HELPER=y
+CONFIG_ADJ_CHAIN=y
+CONFIG_HOUSTON=y
+CONFIG_MEMPLUS=y
+CONFIG_FSC=y
+
+# enable KernelSU + SuSFS 1.5.3+
+>>>>>>> a94602423a2c (kernel: import susfs4ksu-4.14 susfs4ksu 155-250210)
 CONFIG_KSU=n
 CONFIG_KSU_SUSFS=y
 CONFIG_KSU_SUSFS_SUS_PATH=y
