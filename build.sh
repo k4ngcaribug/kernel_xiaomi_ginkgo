@@ -12,8 +12,8 @@
 
 SECONDS=0 # builtin bash timer
 LOCAL_DIR=/workspace/gitpod/
-ZIPNAME="Venom-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="Venom-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME="Venom-R-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Venom-R-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="${LOCAL_DIR}toolchain"
 CLANG_DIR="${TC_DIR}/clang"
 GCC_64_DIR="${LOCAL_DIR}toolchain/aarch64-linux-android-4.9"
@@ -28,7 +28,7 @@ export LOCALVERSION
 
 if ! [ -d "${CLANG_DIR}" ]; then
 echo "Clang not found! Cloning to ${TC_DIR}..."
-if ! git clone --depth=1 -b main https://gitea.com/k4ngcaribug/aosp-clang ${CLANG_DIR}; then
+if ! git clone --depth=1 -b 17 https://gitlab.com/nekoprjkt/aosp-clang ${CLANG_DIR}; then
 echo "Cloning failed! Aborting..."
 exit 1
 fi
@@ -64,7 +64,7 @@ curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/se
 curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
-sed -i 's/CONFIG_LOCALVERSION="-Venom"/CONFIG_LOCALVERSION="-Venom-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
+sed -i 's/CONFIG_LOCALVERSION="-Venom-R"/CONFIG_LOCALVERSION="-Venom-R-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
 fi
