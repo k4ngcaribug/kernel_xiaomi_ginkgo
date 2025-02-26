@@ -11,7 +11,7 @@
 # Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-LOCAL_DIR=/workspace/gitpod/
+LOCAL_DIR=/home/snap/
 ZIPNAME="Venom-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 ZIPNAME_KSU="Venom-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="${LOCAL_DIR}toolchain"
@@ -60,8 +60,8 @@ fi
 # Set function for override kernel name and variants
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo -e "\nKSU Support, let's Make it On\n"
-curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
 sed -i 's/CONFIG_LOCALVERSION="-Venom"/CONFIG_LOCALVERSION="-Venom-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
