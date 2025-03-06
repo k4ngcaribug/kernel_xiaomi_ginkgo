@@ -1,26 +1,34 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Copyright (C) 2020-2023 Adithya R.
-# Copyright (C) 2023 k4ngcaribug.
+# Copyright (C) 2023 Edwiin Kusuma Jaya (ryuzenn)
+#
+# Simple Local Kernel Build Script
+#
+# Configured for Redmi Note 8 / ginkgo custom kernel source
+#
+# Setup build env with akhilnarang/scripts repo
+#
+# Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="MerryGoo-Ginkgo-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="MerryGoo-Ginkgo-KSU-$(TZ=Asia/Kolkata date +"%Y%m%d-%H%M").zip"
-TC_DIR="/workspace/gitpod/tc/clang"
-GCC_64_DIR="/workspace/gitpod/tc/aarch64-linux-android-4.9"
-GCC_32_DIR="/workspace/gitpod/tc/arm-linux-androideabi-4.9"
-AK3_DIR="AnyKernel3"
+LOCAL_DIR=/home/snap/
+ZIPNAME="Venom-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Venom-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+TC_DIR="${LOCAL_DIR}toolchain"
+CLANG_DIR="${TC_DIR}/clang"
+GCC_64_DIR="${LOCAL_DIR}toolchain/aarch64-linux-android-4.9"
+GCC_32_DIR="${LOCAL_DIR}toolchain/arm-linux-androideabi-4.9"
+AK3_DIR="${LOCAL_DIR}AnyKernel3"
 DEFCONFIG="vendor/ginkgo-perf_defconfig"
-export PATH="$TC_DIR/bin:$PATH"
 
-# Build Environment
-sudo -E apt-get -qq update
-sudo -E apt-get -qq install bc python2 python3 python-is-python3
+export PATH="$CLANG_DIR/bin:$PATH"
+export LD_LIBRARY_PATH="$CLANG_DIR/lib:$LD_LIBRARY_PATH"
+export KBUILD_BUILD_VERSION="1"
+export LOCALVERSION
 
-# Check for essentials
-if ! [ -d "${TC_DIR}" ]; then
+if ! [ -d "${CLANG_DIR}" ]; then
 echo "Clang not found! Cloning to ${TC_DIR}..."
-if ! git clone --depth=1 https://gitlab.com/Panchajanya1999/azure-clang -b main ${TC_DIR}; then
+if ! git clone --depth=1 -b 17 https://gitlab.com/nekoprjkt/aosp-clang ${CLANG_DIR}; then
 echo "Cloning failed! Aborting..."
 exit 1
 fi
@@ -52,44 +60,65 @@ fi
 # Set function for override kernel name and variants
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo -e "\nKSU Support, let's Make it On\n"
-curl -kLSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
-sed -i 's/CONFIG_LOCALVERSION="-MerryGoo-Ginkgo"/CONFIG_LOCALVERSION="-MerryGoo-Ginkgo-KSU"/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
-fi
-
-if [[ $1 = "-r" || $1 = "--regen" ]]; then
-make O=out ARCH=arm64 $DEFCONFIG savedefconfig
-cp out/defconfig arch/arm64/configs/$DEFCONFIG
-exit
 fi
 
 mkdir -p out
 make O=out ARCH=arm64 $DEFCONFIG
 
 echo -e "\nStarting compilation...\n"
-make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar AS=llvm-as NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=$GCC_64_DIR/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GCC_32_DIR/bin/arm-linux-androideabi- CLANG_TRIPLE=aarch64-linux-gnu- Image.gz-dtb dtbo.img
+make -j$(nproc --all) O=out \
+					  ARCH=arm64 \
+					  CC=clang \
+					  LD=ld.lld \
+					  AR=llvm-ar \
+					  AS=llvm-as \
+					  NM=llvm-nm \
+					  OBJCOPY=llvm-objcopy \
+					  OBJDUMP=llvm-objdump \
+					  STRIP=llvm-strip \
+					  CROSS_COMPILE=aarch64-linux-android- \
+					  CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+					  CLANG_TRIPLE=aarch64-linux-gnu- \
+					  Image.gz-dtb \
+					  dtbo.img
 
 if [ -f "out/arch/arm64/boot/Image.gz-dtb" ] && [ -f "out/arch/arm64/boot/dtbo.img" ]; then
 echo -e "\nKernel compiled succesfully! Zipping up...\n"
+git restore arch/arm64/configs/vendor/ginkgo-perf_defconfig
+if [ -d "$AK3_DIR" ]; then
+cp -r $AK3_DIR AnyKernel3
+elif ! git clone -q https://github.com/k4ngcaribug/AnyKernel3; then
+echo -e "\nAnyKernel3 repo not found locally and cloning failed! Aborting..."
+exit 1
 fi
 cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3
 cp out/arch/arm64/boot/dtbo.img AnyKernel3
 rm -f *zip
 cd AnyKernel3
-git checkout master &> /dev/null
+git checkout main &> /dev/null
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 zip -r9 "../$ZIPNAME_KSU" * -x '*.git*' README.md *placeholder
 else
 zip -r9 "../$ZIPNAME" * -x '*.git*' README.md *placeholder
 fi
 cd ..
-echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
+rm -rf AnyKernel3
+rm -rf out/arch/arm64/boot
+echo -e "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo "Zip: $ZIPNAME_KSU"
 else
 echo "Zip: $ZIPNAME"
 fi
+else
+echo -e "\nCompilation failed!"
+exit 1
+fi
+echo -e "======================================="
 git restore .

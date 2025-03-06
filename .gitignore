@@ -128,8 +128,6 @@ kernel/configs/android-*.cfg
 # build
 out/
 *.zip
-error.log
-AnyKernel3
 
 # Ignore KernelSU folders
 KernelSU-Next/
