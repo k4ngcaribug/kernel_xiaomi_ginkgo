@@ -11,7 +11,7 @@
 # Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-LOCAL_DIR=/home/snap/
+LOCAL_DIR=/workspace/gitpod/
 ZIPNAME="Venom-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 ZIPNAME_KSU="Venom-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="${LOCAL_DIR}toolchain"
