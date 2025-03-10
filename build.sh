@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Copyright (C) 2023 Edwiin Kusuma Jaya (ryuzenn)
-#
+# Copyright (C) 2025 k4ngcaribug
 # Simple Local Kernel Build Script
 #
 # Configured for Redmi Note 8 / ginkgo custom kernel source
@@ -13,10 +13,10 @@
 SECONDS=0 # builtin bash timer
 ZIPNAME="Venom-Kernel-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 ZIPNAME_KSU="Venom-Kernel-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-TC_DIR="$HOME/tc"
-CLANG_DIR="$HOME/clang"
-GCC_64_DIR="$HOME/tc/aarch64-linux-android-4.9"
-GCC_32_DIR="$HOME/tc/arm-linux-androideabi-4.9"
+TC_DIR="$HOME/tc/"
+CLANG_DIR="${TC_DIR}clang"
+GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
+GCC_32_DIR="${TC_DIR}arm-linux-androideabi-4.9"
 AK3_DIR="$HOME/AnyKernel3"
 DEFCONFIG="vendor/ginkgo-perf_defconfig"
 
