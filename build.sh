@@ -11,14 +11,13 @@
 # Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-LOCAL_DIR=/home/snap/
-ZIPNAME="Venom-AOSP-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="Venom-AOSP-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-TC_DIR="${LOCAL_DIR}toolchain"
-CLANG_DIR="${TC_DIR}/clang"
-GCC_64_DIR="${LOCAL_DIR}toolchain/aarch64-linux-android-4.9"
-GCC_32_DIR="${LOCAL_DIR}toolchain/arm-linux-androideabi-4.9"
-AK3_DIR="${LOCAL_DIR}AnyKernel3"
+ZIPNAME="Venom-Kernel-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Venom-Kernel-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+TC_DIR="$HOME/tc"
+CLANG_DIR="$HOME/clang"
+GCC_64_DIR="$HOME/tc/aarch64-linux-android-4.9"
+GCC_32_DIR="$HOME/tc/arm-linux-androideabi-4.9"
+AK3_DIR="$HOME/AnyKernel3"
 DEFCONFIG="vendor/ginkgo-perf_defconfig"
 
 export PATH="$CLANG_DIR/bin:$PATH"
@@ -60,7 +59,6 @@ fi
 # Set function for override kernel name and variants
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo -e "\nKSU Support, let's Make it On\n"
-curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 git apply KernelSU-hook.patch
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
