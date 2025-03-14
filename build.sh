@@ -11,8 +11,8 @@
 # Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="Venom-Kernel-Ginkgo-RDP-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="Venom-Kernel-Ginkgo-RDP-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME="Venom-Kernel-Ginkgo-Dynamic-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Venom-Kernel-Ginkgo-Dynamic-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="$HOME/tc/"
 CLANG_DIR="${TC_DIR}clang"
 GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
