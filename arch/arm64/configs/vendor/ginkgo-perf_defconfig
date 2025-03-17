@@ -840,7 +840,3 @@ CONFIG_POLLY_CLANG=y
 #########################################################
 CONFIG_SIMPLE_GPU_ALGORITHM=y
 CONFIG_SCHED_BORE=y
-#########################################################
-CONFIG_DEFAULT_KP_MODE=3
-CONFIG_AUTO_KPROFILES=y
-CONFIG_CFS_BANDWIDTH=y
