@@ -11,6 +11,17 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
+config TOUCHSCREEN_XIAOMI_C3J
+	bool "touchscreen for xiaomi c3j project"
+	depends on SPI
+	default n
+	help
+	  Say Y here if you have a Xiaomi C3J touchscreen and want to enable
+	  support for the built-in touchscreen.
+
+source "drivers/input/touchscreen/nt36xxx_spi_c3j/Kconfig"
+source "drivers/input/touchscreen/ft8719_spi_c3j/Kconfig"
+
 config TOUCHSCREEN_PROPERTIES
 	def_tristate INPUT
 	depends on INPUT
@@ -1288,8 +1299,6 @@ config TOUCHSCREEN_SYNAPTICS_TCM
 
 source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
 
-source "drivers/input/touchscreen/focaltech_touch/Kconfig"
-
 config TOUCHSCREEN_RAYDIUM_CHIPSET
 	bool "Raydium WT030 touchpanel CHIPSET"
 	depends on I2C
@@ -1298,17 +1307,7 @@ config TOUCHSCREEN_RAYDIUM_CHIPSET
 
 	  If unsure, say N.
 
-config TOUCHSCREEN_XIAOMI_C3J
-	bool "touchscreen for xiaomi c3j project"
-	depends on SPI
-	default n
-	help
-		Say Y here if you have a Xiaomi C3J touchscreen and want to enable
-		support for the built-in touchscreen.
-
-source "drivers/input/touchscreen/nt36xxx_spi_c3j/Kconfig"
-
-source "drivers/input/touchscreen/ft8719_spi_c3j/Kconfig"
+source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 
 config TOUCHSCREEN_COMMON
 	bool "Common touchscreen interface to interact with userspace"

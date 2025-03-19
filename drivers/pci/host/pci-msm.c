@@ -3652,8 +3652,9 @@ static int msm_pcie_get_resources(struct msm_pcie_dev_t *dev,
 	cnt = of_property_count_elems_of_size((&pdev->dev)->of_node,
 			"max-clock-frequency-hz", sizeof(u32));
 	if (cnt > 0) {
-		clkfreq = kzalloc((MSM_PCIE_MAX_CLK + MSM_PCIE_MAX_PIPE_CLK) *
-					sizeof(*clkfreq), GFP_KERNEL);
+		clkfreq = kcalloc(MSM_PCIE_MAX_CLK + MSM_PCIE_MAX_PIPE_CLK,
+				  sizeof(*clkfreq),
+				  GFP_KERNEL);
 		if (!clkfreq) {
 			PCIE_ERR(dev, "PCIe: memory alloc failed for RC%d\n",
 					dev->rc_idx);
@@ -3849,8 +3850,9 @@ static int msm_pcie_get_resources(struct msm_pcie_dev_t *dev,
 			"iommu-map", (u32 *)map, size / sizeof(u32));
 
 		dev->sid_info_len = map_len;
-		dev->sid_info = devm_kzalloc(&pdev->dev,
-			dev->sid_info_len * sizeof(*dev->sid_info), GFP_KERNEL);
+		dev->sid_info = devm_kcalloc(&pdev->dev,
+			dev->sid_info_len, sizeof(*dev->sid_info),
+			GFP_KERNEL);
 		if (!dev->sid_info) {
 			devm_kfree(&pdev->dev, map);
 			ret = -ENOMEM;
@@ -4346,7 +4348,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 			PCIE_ERR(dev,
 				"PCIe: RC%d: unsupported gen speed: %d\n",
 				dev->rc_idx, current_link_speed);
-			return 0;
+			goto out;
 		}
 
 		bw_scale = &dev->bw_scale[index];
@@ -6791,6 +6793,7 @@ static int __init pcie_init(void)
 
 	for (i = 0; i < MAX_RC_NUM; i++) {
 		snprintf(rc_name, MAX_RC_NAME_LEN, "pcie%d-short", i);
+#ifdef CONFIG_IPC_LOGGING
 		msm_pcie_dev[i].ipc_log =
 			ipc_log_context_create(PCIE_LOG_PAGES, rc_name, 0);
 		if (msm_pcie_dev[i].ipc_log == NULL)
@@ -6800,7 +6803,9 @@ static int __init pcie_init(void)
 			PCIE_DBG(&msm_pcie_dev[i],
 				"PCIe IPC logging is enable for RC%d\n",
 				i);
+#endif
 		snprintf(rc_name, MAX_RC_NAME_LEN, "pcie%d-long", i);
+#ifdef CONFIG_IPC_LOGGING
 		msm_pcie_dev[i].ipc_log_long =
 			ipc_log_context_create(PCIE_LOG_PAGES, rc_name, 0);
 		if (msm_pcie_dev[i].ipc_log_long == NULL)
@@ -6810,7 +6815,9 @@ static int __init pcie_init(void)
 			PCIE_DBG(&msm_pcie_dev[i],
 				"PCIe IPC logging %s is enable for RC%d\n",
 				rc_name, i);
+#endif
 		snprintf(rc_name, MAX_RC_NAME_LEN, "pcie%d-dump", i);
+#ifdef CONFIG_IPC_LOGGING
 		msm_pcie_dev[i].ipc_log_dump =
 			ipc_log_context_create(PCIE_LOG_PAGES, rc_name, 0);
 		if (msm_pcie_dev[i].ipc_log_dump == NULL)
@@ -6820,6 +6827,7 @@ static int __init pcie_init(void)
 			PCIE_DBG(&msm_pcie_dev[i],
 				"PCIe IPC logging %s is enable for RC%d\n",
 				rc_name, i);
+#endif
 		spin_lock_init(&msm_pcie_dev[i].cfg_lock);
 		msm_pcie_dev[i].cfg_access = true;
 		mutex_init(&msm_pcie_dev[i].enumerate_lock);

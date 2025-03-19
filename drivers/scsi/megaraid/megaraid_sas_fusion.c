@@ -432,7 +432,7 @@ megasas_alloc_cmdlist_fusion(struct megasas_instance *instance)
 	 * commands.
 	 */
 	fusion->cmd_list =
-		kzalloc(sizeof(struct megasas_cmd_fusion *) * max_mpt_cmd,
+		kcalloc(max_mpt_cmd, sizeof(struct megasas_cmd_fusion *),
 			GFP_KERNEL);
 	if (!fusion->cmd_list) {
 		dev_err(&instance->pdev->dev,
@@ -4019,7 +4019,7 @@ int megasas_task_abort_fusion(struct scsi_cmnd *scmd)
 	devhandle = megasas_get_tm_devhandle(scmd->device);
 
 	if (devhandle == (u16)ULONG_MAX) {
-		ret = SUCCESS;
+		ret = FAILED;
 		sdev_printk(KERN_INFO, scmd->device,
 			"task abort issued for invalid devhandle\n");
 		mutex_unlock(&instance->reset_mutex);
@@ -4091,7 +4091,7 @@ int megasas_reset_target_fusion(struct scsi_cmnd *scmd)
 	devhandle = megasas_get_tm_devhandle(scmd->device);
 
 	if (devhandle == (u16)ULONG_MAX) {
-		ret = SUCCESS;
+		ret = FAILED;
 		sdev_printk(KERN_INFO, scmd->device,
 			"target reset issued for invalid devhandle\n");
 		mutex_unlock(&instance->reset_mutex);
@@ -4508,8 +4508,7 @@ megasas_alloc_fusion_context(struct megasas_instance *instance)
 		(struct LD_LOAD_BALANCE_INFO *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
 		fusion->load_balance_info_pages);
 	if (!fusion->load_balance_info) {
-		fusion->load_balance_info = vzalloc(MAX_LOGICAL_DRIVES_EXT *
-			sizeof(struct LD_LOAD_BALANCE_INFO));
+		fusion->load_balance_info = vzalloc(array_size(MAX_LOGICAL_DRIVES_EXT, sizeof(struct LD_LOAD_BALANCE_INFO)));
 		if (!fusion->load_balance_info)
 			dev_err(&instance->pdev->dev, "Failed to allocate load_balance_info, "
 				"continuing without Load Balance support\n");

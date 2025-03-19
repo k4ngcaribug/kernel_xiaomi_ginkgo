@@ -309,6 +309,28 @@ static int vidioc_g_fbuf(struct file *file, void *fh, struct v4l2_framebuffer *a
 	return vivid_vid_out_g_fbuf(file, fh, a);
 }
 
+/*
+ * Only support the framebuffer of one of the vivid instances.
+ * Anything else is rejected.
+ */
+bool vivid_validate_fb(const struct v4l2_framebuffer *a)
+{
+	struct vivid_dev *dev;
+	int i;
+
+	for (i = 0; i < n_devs; i++) {
+		dev = vivid_devs[i];
+		if (!dev || !dev->video_pbase)
+			continue;
+		if ((unsigned long)a->base == dev->video_pbase &&
+		    a->fmt.width <= dev->display_width &&
+		    a->fmt.height <= dev->display_height &&
+		    a->fmt.bytesperline <= dev->display_byte_stride)
+			return true;
+	}
+	return false;
+}
+
 static int vidioc_s_fbuf(struct file *file, void *fh, const struct v4l2_framebuffer *a)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -856,10 +878,10 @@ static int vivid_create_instance(struct platform_device *pdev, int inst)
 	tpg_init(&dev->tpg, 640, 360);
 	if (tpg_alloc(&dev->tpg, MAX_ZOOM * MAX_WIDTH))
 		goto free_dev;
-	dev->scaled_line = vzalloc(MAX_ZOOM * MAX_WIDTH);
+	dev->scaled_line = vzalloc(array_size(MAX_WIDTH, MAX_ZOOM));
 	if (!dev->scaled_line)
 		goto free_dev;
-	dev->blended_line = vzalloc(MAX_ZOOM * MAX_WIDTH);
+	dev->blended_line = vzalloc(array_size(MAX_WIDTH, MAX_ZOOM));
 	if (!dev->blended_line)
 		goto free_dev;
 
@@ -871,8 +893,9 @@ static int vivid_create_instance(struct platform_device *pdev, int inst)
 	/* create a string array containing the names of all the preset timings */
 	while (v4l2_dv_timings_presets[dev->query_dv_timings_size].bt.width)
 		dev->query_dv_timings_size++;
-	dev->query_dv_timings_qmenu = kmalloc(dev->query_dv_timings_size *
-					   (sizeof(void *) + 32), GFP_KERNEL);
+	dev->query_dv_timings_qmenu = kmalloc_array(dev->query_dv_timings_size,
+						    (sizeof(void *) + 32),
+						    GFP_KERNEL);
 	if (dev->query_dv_timings_qmenu == NULL)
 		goto free_dev;
 	for (i = 0; i < dev->query_dv_timings_size; i++) {

@@ -114,14 +114,9 @@ static inline int clk_osm_read_reg(struct clk_osm *c, u32 offset)
 	return readl_relaxed(c->vbase + offset);
 }
 
-static inline int clk_osm_read_reg_no_log(struct clk_osm *c, u32 offset)
-{
-	return readl_relaxed_no_log(c->vbase + offset);
-}
-
 static inline int clk_osm_mb(struct clk_osm *c)
 {
-	return readl_relaxed_no_log(c->vbase + ENABLE_REG);
+	return readl_relaxed(c->vbase + ENABLE_REG);
 }
 
 static long clk_osm_list_rate(struct clk_hw *hw, unsigned int n,
@@ -186,7 +181,9 @@ static int clk_osm_search_table(struct osm_entry *table, int entries, long rate)
 const struct clk_ops clk_ops_cpu_osm = {
 	.round_rate = clk_osm_round_rate,
 	.list_rate = clk_osm_list_rate,
+#ifdef CONFIG_DEBUG_KERNEL
 	.debug_init = clk_debug_measure_add,
+#endif
 };
 
 static int clk_core_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -282,7 +279,9 @@ const static struct clk_ops clk_ops_l3_osm = {
 	.list_rate = clk_osm_list_rate,
 	.recalc_rate = l3_clk_recalc_rate,
 	.set_rate = l3_clk_set_rate,
+#ifdef CONFIG_DEBUG_KERNEL
 	.debug_init = clk_debug_measure_add,
+#endif
 };
 
 static struct clk_init_data osm_clks_init[] = {
@@ -615,12 +614,9 @@ static unsigned int
 osm_cpufreq_fast_switch(struct cpufreq_policy *policy, unsigned int target_freq)
 {
 	int index;
-	unsigned int relation;
 
-	relation = target_freq < policy->max ? CPUFREQ_RELATION_L :
-					       CPUFREQ_RELATION_H;
-
-	index = cpufreq_frequency_table_target(policy, target_freq, relation);
+	index = cpufreq_frequency_table_target(policy, target_freq,
+							CPUFREQ_RELATION_L);
 	if (index < 0)
 		return 0;
 
@@ -982,7 +978,7 @@ static u64 clk_osm_get_cpu_cycle_counter(int cpu)
 	 * core DCVS is disabled.
 	 */
 	core_num = parent->per_core_dcvs ? c->core_num : 0;
-	val = clk_osm_read_reg_no_log(parent,
+	val = clk_osm_read_reg(parent,
 				OSM_CYCLE_COUNTER_STATUS_REG(core_num));
 
 	if (val < c->prev_cycle_counter) {

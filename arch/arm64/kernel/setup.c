@@ -74,6 +74,9 @@ EXPORT_SYMBOL(boot_reason);
 unsigned int cold_boot;
 EXPORT_SYMBOL(cold_boot);
 
+bool plain_partitions = false;
+EXPORT_SYMBOL(plain_partitions);
+
 /*
  * Standard memory resources
  */
@@ -103,8 +106,6 @@ u64 __cacheline_aligned boot_args[4];
 unsigned int logical_bootcpu_id __read_mostly;
 EXPORT_SYMBOL(logical_bootcpu_id);
 
-extern void *__init __fixmap_remap_fdt(phys_addr_t dt_phys, int *size,
-				       pgprot_t prot);
 /*
  * Parse the device tree cpu nodes and enumerate logical cpu number for
  * the boot cpu based on the mpidr value and reg value from the cpu node.
@@ -125,7 +126,7 @@ static unsigned int __init parse_logical_bootcpu(u64 dt_phys)
 	 * attempt at mapping the FDT in setup_machine()
 	 */
 	early_fixmap_init();
-	fdt = __fixmap_remap_fdt(dt_phys, &size, PAGE_KERNEL);
+	fdt = fixmap_remap_fdt(dt_phys, &size, PAGE_KERNEL);
 	if (!fdt)
 		return 0;
 
@@ -275,10 +276,47 @@ const char * __init __weak arch_read_machine_name(void)
 	return of_flat_dt_get_machine_name();
 }
 
+#ifdef CONFIG_SDCARD_FS
+    bool sdcardfs_enabled = true;
+#else
+    bool sdcardfs_enabled = false;
+#endif
+
+bool is_dynamic_partitions(void)
+{
+    if (sdcardfs_enabled && !plain_partitions) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+static int __init plain_partitions_param(char *__unused)
+{
+    if (!is_dynamic_partitions()) {
+        pr_info("Not in dynamic partitions ROM or SDCardFS enabled. Initializing SDCardFS\n");
+        plain_partitions = true;
+        return 1;
+    } else {
+        pr_info("Dynamic partitions ROM detected and SDCardFS disabled. Skipping SDCardFS\n");
+        plain_partitions = false;
+        return 0;
+    }
+}
+
+__setup("plain_partitions", plain_partitions_param);
+
 static void __init setup_machine_fdt(phys_addr_t dt_phys)
 {
-	void *dt_virt = fixmap_remap_fdt(dt_phys);
+	int size;
+	void *dt_virt = fixmap_remap_fdt(dt_phys, &size, PAGE_KERNEL);
 	const char *machine_name;
+
+	if (dt_virt)
+		memblock_reserve(dt_phys, size);
+
+	if (dt_virt)
+		memblock_reserve(dt_phys, size);
 
 	if (!dt_virt || !early_init_dt_scan(dt_virt)) {
 		pr_crit("\n"
@@ -290,6 +328,9 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 		while (true)
 			cpu_relax();
 	}
+
+	/* Early fixups are done, map the FDT as read-only now */
+	fixmap_remap_fdt(dt_phys, &size, PAGE_KERNEL_RO);
 
 	machine_name = arch_read_machine_name();
 	if (!machine_name)

@@ -2,6 +2,7 @@
 config M68K
 	bool
 	default y
+	select ARCH_HAS_CPU_FINALIZE_INIT if MMU
 	select ARCH_MIGHT_HAVE_PC_PARPORT if ISA
 	select ARCH_NO_COHERENT_DMA_MMAP if !MMU
 	select HAVE_IDE
@@ -27,6 +28,13 @@ config M68K
 
 config CPU_BIG_ENDIAN
 	def_bool y
+
+config RWSEM_GENERIC_SPINLOCK
+	bool
+	default y
+
+config RWSEM_XCHGADD_ALGORITHM
+	bool
 
 config ARCH_HAS_ILOG2_U32
 	bool

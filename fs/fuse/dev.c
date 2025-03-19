@@ -7,7 +7,6 @@
 */
 
 #include "fuse_i.h"
-#include "fuse_shortcircuit.h"
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -39,71 +38,6 @@ static struct fuse_dev *fuse_get_dev(struct file *file)
 	return ACCESS_ONCE(file->private_data);
 }
 
-#ifdef CONFIG_FUSE_SHORTCIRCUIT
-#include <linux/cred.h>
-extern unsigned int ht_fuse_boost;
-
-unsigned int ht_fuse_boost = 2;
-module_param_named(fuse_boost, ht_fuse_boost, uint, 0664);
-
-static int fuse_debug;
-module_param_named(fuse_debug, fuse_debug, int, 0664);
-
-bool is_fg(int uid)
-{
-	bool ret = false;
-	if (uid == -555)
-	ret = true;
-	return ret;
-}
-
-static inline bool fuse_can_boost(void)
-{
-	int uid = current_uid().val;
-
-	if (!ht_fuse_boost)
-		return false;
-
-	// fuse_boost enabled and is foreground request
-	if (ht_fuse_boost >= 1 && is_fg(uid))
-		return true;
-
-	// fuse_boost enabled and is system request (include foreground request)
-	if (ht_fuse_boost == 2 && uid < 10000)
-		return true;
-
-	return false;
-}
-
-static inline void fuse_boost_init(struct fuse_req *req)
-{
-	clear_bit(FR_BOOST, &req->flags);
-
-	if (fuse_can_boost())
-		__set_bit(FR_BOOST, &req->flags);
-
-	if (fuse_debug) {
-		int uid = current_uid().val;
-
-		pr_info("current %s %d, fg: %d, uid: %d\n",
-			current->comm, current->pid, 0, uid);
-	}
-}
-
-static inline void fuse_boost_active_check(struct fuse_req *req)
-{
-	// boost active check
-	// 1. sysctl: sched_fuse_boost (on)
-	// 2. target: mediaprovider's specific tasks
-	// TODO: add system busy check to not impact ux experience
-	if (ht_fuse_boost)
-		current->fuse_boost = test_bit(FR_BOOST, &req->flags) ? 1 : 0;
-}
-#else
-static inline void fuse_boost_init(struct fuse_req *req) {}
-static inline void fuse_boost_active_check(struct fuse_req *req) {}
-#endif
-
 static void fuse_request_init(struct fuse_req *req, struct page **pages,
 			      struct fuse_page_desc *page_descs,
 			      unsigned npages)
@@ -119,8 +53,6 @@ static void fuse_request_init(struct fuse_req *req, struct page **pages,
 	req->page_descs = page_descs;
 	req->max_pages = npages;
 	__set_bit(FR_PENDING, &req->flags);
-
-	fuse_boost_init(req);
 }
 
 static struct fuse_req *__fuse_request_alloc(unsigned npages, gfp_t flags)
@@ -134,9 +66,11 @@ static struct fuse_req *__fuse_request_alloc(unsigned npages, gfp_t flags)
 			pages = req->inline_pages;
 			page_descs = req->inline_page_descs;
 		} else {
-			pages = kmalloc(sizeof(struct page *) * npages, flags);
-			page_descs = kmalloc(sizeof(struct fuse_page_desc) *
-					     npages, flags);
+			pages = kmalloc_array(npages, sizeof(struct page *),
+					      flags);
+			page_descs = kmalloc_array(npages,
+						   sizeof(struct fuse_page_desc),
+						   flags);
 		}
 
 		if (!pages || !page_descs) {
@@ -167,10 +101,6 @@ void fuse_request_free(struct fuse_req *req)
 	if (req->pages != req->inline_pages) {
 		kfree(req->pages);
 		kfree(req->page_descs);
-	}
-	if (req->iname) {
-		__putname(req->iname);
-		req->iname = NULL;
 	}
 	kmem_cache_free(fuse_req_cachep, req);
 }
@@ -551,11 +481,11 @@ static void request_wait_answer(struct fuse_conn *fc, struct fuse_req *req)
 
 	/*
 	 * Either request is already in userspace, or it was forced.
-	 * Wait half of freeze_timeout_msecs to avoid getting stuck.
+	 * Wait it out.
 	 */
 	while (!test_bit(FR_FINISHED, &req->flags))
-		wait_event_freezable_timeout(req->waitq,
-			test_bit(FR_FINISHED, &req->flags), freeze_timeout_msecs / 2);
+		wait_event_freezable(req->waitq,
+				test_bit(FR_FINISHED, &req->flags));
 }
 
 static void __fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
@@ -644,16 +574,10 @@ ssize_t fuse_simple_request(struct fuse_conn *fc, struct fuse_args *args)
 	       args->in.numargs * sizeof(struct fuse_in_arg));
 	req->out.argvar = args->out.argvar;
 	req->out.numargs = args->out.numargs;
-	req->iname = args->iname;
-	args->iname = NULL;
 	memcpy(req->out.args, args->out.args,
 	       args->out.numargs * sizeof(struct fuse_arg));
 	fuse_request_send(fc, req);
 	ret = req->out.h.error;
-	if (!ret) {
-		if (req->private_lower_rw_file != NULL)
-			args->private_lower_rw_file = req->private_lower_rw_file;
-	}
 	if (!ret && args->out.argvar) {
 		BUG_ON(args->out.numargs != 1);
 		ret = req->out.args[0].size;
@@ -916,7 +840,8 @@ static int fuse_check_page(struct page *page)
 	       1 << PG_uptodate |
 	       1 << PG_lru |
 	       1 << PG_active |
-	       1 << PG_reclaim))) {
+	       1 << PG_reclaim |
+	       LRU_GEN_MASK | LRU_REFS_MASK))) {
 		printk(KERN_WARNING "fuse: trying to steal weird page\n");
 		printk(KERN_WARNING "  page=%p index=%li flags=%08lx, count=%i, mapcount=%i, mapping=%p\n", page, page->index, page->flags, page_count(page), page_mapcount(page), page->mapping);
 		return 1;
@@ -987,6 +912,12 @@ static int fuse_try_move_page(struct fuse_copy_state *cs, struct page **pagep)
 
 	if (!(buf->flags & PIPE_BUF_FLAG_LRU))
 		lru_cache_add_file(newpage);
+
+	/*
+	 * Release while we have extra ref on stolen page.  Otherwise
+	 * anon_pipe_buf_release() might think the page can be reused.
+	 */
+	pipe_buf_release(cs->pipe, buf);
 
 	err = 0;
 	spin_lock(&cs->req->waitq.lock);
@@ -1071,7 +1002,17 @@ static int fuse_copy_page(struct fuse_copy_state *cs, struct page **pagep,
 
 	while (count) {
 		if (cs->write && cs->pipebufs && page) {
-			return fuse_ref_page(cs, page, offset, count);
+			/*
+			 * Can't control lifetime of pipe buffers, so always
+			 * copy user pages.
+			 */
+			if (cs->req->user_pages) {
+				err = fuse_copy_fill(cs);
+				if (err)
+					return err;
+			} else {
+				return fuse_ref_page(cs, page, offset, count);
+			}
 		} else if (!cs->len) {
 			if (cs->move_pages && page &&
 			    offset == 0 && count == PAGE_SIZE) {
@@ -1369,9 +1310,6 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 
 	req = list_entry(fiq->pending.next, struct fuse_req, list);
 	clear_bit(FR_PENDING, &req->flags);
-
-	fuse_boost_active_check(req);
-
 	list_del_init(&req->list);
 	spin_unlock(&fiq->waitq.lock);
 
@@ -1424,24 +1362,6 @@ static ssize_t fuse_dev_do_read(struct fuse_dev *fud, struct file *file,
 	__fuse_get_request(req);
 	set_bit(FR_SENT, &req->flags);
 	spin_unlock(&fpq->lock);
-
-	if (sct_mode == 1) {
-		if (current->fpack) {
-			if (current->fpack->iname)
-				__putname(current->fpack->iname);
-			memset(current->fpack, 0, sizeof(struct fuse_package));
-		}
-		if (req->in.h.opcode == FUSE_OPEN || req->in.h.opcode == FUSE_CREATE) {
-			if (!current->fpack)
-				current->fpack = kzalloc(sizeof(struct fuse_package), GFP_KERNEL);
-			if (likely(current->fpack)) {
-				current->fpack->fuse_open_req = true;
-				current->fpack->iname = req->iname;
-				req->iname = NULL;
-			}
-		}
-	}
-
 	/* matches barrier in request_wait_answer() */
 	smp_mb__after_atomic();
 	if (test_bit(FR_INTERRUPTED, &req->flags))
@@ -1503,7 +1423,8 @@ static ssize_t fuse_dev_splice_read(struct file *in, loff_t *ppos,
 	if (!fud)
 		return -EPERM;
 
-	bufs = kmalloc(pipe->buffers * sizeof(struct pipe_buffer), GFP_KERNEL);
+	bufs = kmalloc_array(pipe->buffers, sizeof(struct pipe_buffer),
+			     GFP_KERNEL);
 	if (!bufs)
 		return -ENOMEM;
 
@@ -1751,9 +1672,11 @@ static int fuse_notify_store(struct fuse_conn *fc, unsigned int size,
 
 		this_num = min_t(unsigned, num, PAGE_SIZE - offset);
 		err = fuse_copy_page(cs, &page, offset, this_num, 0);
-		if (!err && offset == 0 &&
-		    (this_num == PAGE_SIZE || file_size == end))
+		if (!PageUptodate(page) && !err && offset == 0 &&
+		    (this_num == PAGE_SIZE || file_size == end)) {
+			zero_user_segment(page, this_num, PAGE_SIZE);
 			SetPageUptodate(page);
+		}
 		unlock_page(page);
 		put_page(page);
 
@@ -1971,11 +1894,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	struct fuse_req *req;
 	struct fuse_out_header oh;
 
-	if (current->fpack && current->fpack->iname) {
-		__putname(current->fpack->iname);
-		current->fpack->iname = NULL;
-	}
-
 	if (nbytes < sizeof(struct fuse_out_header))
 		return -EINVAL;
 
@@ -2008,8 +1926,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	req = request_find(fpq, oh.unique);
 	if (!req)
 		goto err_unlock_pq;
-
-	fuse_boost_active_check(req);
 
 	/* Is it an interrupt reply? */
 	if (req->intr_unique == oh.unique) {
@@ -2049,8 +1965,6 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 		req->out.h.error = kern_path(path, 0, req->canonical_path);
 	}
 	fuse_copy_finish(cs);
-
-	fuse_setup_shortcircuit(fc, req);
 
 	spin_lock(&fpq->lock);
 	clear_bit(FR_LOCKED, &req->flags);
@@ -2107,7 +2021,8 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 
 	pipe_lock(pipe);
 
-	bufs = kmalloc(pipe->buffers * sizeof(struct pipe_buffer), GFP_KERNEL);
+	bufs = kmalloc_array(pipe->buffers, sizeof(struct pipe_buffer),
+			     GFP_KERNEL);
 	if (!bufs) {
 		pipe_unlock(pipe);
 		return -ENOMEM;
@@ -2164,8 +2079,12 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 
 	pipe_lock(pipe);
 out_free:
-	for (idx = 0; idx < nbuf; idx++)
-		pipe_buf_release(pipe, &bufs[idx]);
+	for (idx = 0; idx < nbuf; idx++) {
+		struct pipe_buffer *buf = &bufs[idx];
+
+		if (buf->ops)
+			pipe_buf_release(pipe, buf);
+	}
 	pipe_unlock(pipe);
 
 	kfree(bufs);

@@ -75,7 +75,6 @@
 #include <linux/ptrace.h>
 #include <linux/tracehook.h>
 #include <linux/printk.h>
-#include <linux/cache.h>
 #include <linux/cgroup.h>
 #include <linux/cpuset.h>
 #include <linux/audit.h>
@@ -104,21 +103,6 @@
 #include "fd.h"
 
 #include "../../lib/kstrtox.h"
-
-struct task_kill_info {
-	struct task_struct *task;
-	struct work_struct work;
-};
-
-static void proc_kill_task(struct work_struct *work)
-{
-	struct task_kill_info *kinfo = container_of(work, typeof(*kinfo), work);
-	struct task_struct *task = kinfo->task;
-
-	send_sig(SIGKILL, task, 0);
-	put_task_struct(task);
-	kfree(kinfo);
-}
 
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
@@ -366,17 +350,14 @@ static int proc_pid_wchan(struct seq_file *m, struct pid_namespace *ns,
 	unsigned long wchan;
 	char symname[KSYM_NAME_LEN];
 
-	if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS))
-		goto print0;
-
 	wchan = get_wchan(task);
-	if (wchan && !lookup_symbol_name(wchan, symname)) {
-		seq_puts(m, symname);
-		return 0;
-	}
 
-print0:
-	seq_putc(m, '0');
+	if (wchan && ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS)
+			&& !lookup_symbol_name(wchan, symname))
+		seq_printf(m, "%s", symname);
+	else
+		seq_putc(m, '0');
+
 	return 0;
 }
 #endif /* CONFIG_KALLSYMS */
@@ -424,7 +405,8 @@ static int proc_pid_stack(struct seq_file *m, struct pid_namespace *ns,
 	if (!file_ns_capable(m->file, &init_user_ns, CAP_SYS_ADMIN))
 		return -EACCES;
 
-	entries = kmalloc(MAX_STACK_TRACE_DEPTH * sizeof(*entries), GFP_KERNEL);
+	entries = kmalloc_array(MAX_STACK_TRACE_DEPTH, sizeof(*entries),
+				GFP_KERNEL);
 	if (!entries)
 		return -ENOMEM;
 
@@ -1022,7 +1004,6 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 {
 	struct mm_struct *mm = NULL;
 	struct task_struct *task;
-	char task_comm[TASK_COMM_LEN];
 	int err = 0;
 
 	task = get_proc_task(file_inode(file));
@@ -1030,7 +1011,7 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 		return -ESRCH;
 
 	mutex_lock(&oom_adj_mutex);
-	if (unlikely(legacy)) {
+	if (legacy) {
 		if (oom_adj < task->signal->oom_score_adj &&
 				!capable(CAP_SYS_RESOURCE)) {
 			err = -EACCES;
@@ -1069,11 +1050,9 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 	}
 
 	task->signal->oom_score_adj = oom_adj;
-	if (likely(!legacy) && has_capability_noaudit(current, CAP_SYS_RESOURCE))
+	if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = (short)oom_adj;
 	trace_oom_score_adj_update(task);
-	if (oom_adj >= 700)
-		strncpy(task_comm, task->comm, TASK_COMM_LEN);
 
 	if (mm) {
 		struct task_struct *p;
@@ -1090,7 +1069,7 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 			task_lock(p);
 			if (!p->vfork_done && process_shares_mm(p, mm)) {
 				p->signal->oom_score_adj = oom_adj;
-				if (likely(!legacy) && has_capability_noaudit(current, CAP_SYS_RESOURCE))
+				if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 					p->signal->oom_score_adj_min = (short)oom_adj;
 			}
 			task_unlock(p);
@@ -1101,20 +1080,6 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 err_unlock:
 	mutex_unlock(&oom_adj_mutex);
 	put_task_struct(task);
-	/* These apps burn through CPU in the background. Don't let them. */
-	if (!err && oom_adj >= 700) {
-		if (!strcmp(task_comm, "id.GoogleCamera")) {
-			struct task_kill_info *kinfo;
-
-			kinfo = kmalloc(sizeof(*kinfo), GFP_KERNEL);
-			if (kinfo) {
-				get_task_struct(task);
-				kinfo->task = task;
-				INIT_WORK(&kinfo->work, proc_kill_task);
-				schedule_work(&kinfo->work);
-			}
-		}
-	}
 	return err;
 }
 
@@ -2123,8 +2088,6 @@ static int dname_to_vma_addr(struct dentry *dentry,
 	unsigned long long sval, eval;
 	unsigned int len;
 
-	if (str[0] == '0' && str[1] != '-')
-		return -EINVAL;
 	len = _parse_integer(str, 16, &sval);
 	if (len & KSTRTOX_OVERFLOW)
 		return -EINVAL;
@@ -2136,8 +2099,6 @@ static int dname_to_vma_addr(struct dentry *dentry,
 		return -EINVAL;
 	str++;
 
-	if (str[0] == '0' && str[1])
-		return -EINVAL;
 	len = _parse_integer(str, 16, &eval);
 	if (len & KSTRTOX_OVERFLOW)
 		return -EINVAL;
@@ -2227,17 +2188,11 @@ static int map_files_get_link(struct dentry *dentry, struct path *path)
 	rc = -ENOENT;
 	down_read(&mm->mmap_sem);
 	vma = find_exact_vma(mm, vm_start, vm_end);
- 	if (vma) {
-        	if (vma->vm_file) {
-            		if (strstr(vma->vm_file->f_path.dentry->d_name.name, "lineage")) { 
-            		rc = kern_path("/system/framework/framework-res.apk", LOOKUP_FOLLOW, path);
-        	} else {
-			*path = vma->vm_file->f_path;
-			path_get(path);
-                	rc = 0;
-            		}
-        	}
-    	}
+	if (vma && vma->vm_file) {
+		*path = vma->vm_file->f_path;
+		path_get(path);
+		rc = 0;
+	}
 	up_read(&mm->mmap_sem);
 
 out_mmput:
@@ -2428,7 +2383,6 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 		}
 	}
 	up_read(&mm->mmap_sem);
-	mmput(mm);
 
 	for (i = 0; i < nr_files; i++) {
 		p = flex_array_get(fa, i);
@@ -2442,6 +2396,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	}
 	if (fa)
 		flex_array_free(fa);
+	mmput(mm);
 
 out_put_task:
 	put_task_struct(task);
@@ -3357,7 +3312,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("mountinfo",  S_IRUGO, proc_mountinfo_operations),
 	REG("mountstats", S_IRUSR, proc_mountstats_operations),
 #ifdef CONFIG_PROCESS_RECLAIM
-	REG("reclaim", S_IWUGO, proc_reclaim_operations),
+	REG("reclaim", 0200, proc_reclaim_operations),
 #endif
 #ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, proc_clear_refs_operations),
@@ -3726,7 +3681,8 @@ static int proc_tid_comm_permission(struct inode *inode, int mask)
 }
 
 static const struct inode_operations proc_tid_comm_inode_operations = {
-		.permission = proc_tid_comm_permission,
+		.setattr	= proc_setattr,
+		.permission	= proc_tid_comm_permission,
 };
 
 /*

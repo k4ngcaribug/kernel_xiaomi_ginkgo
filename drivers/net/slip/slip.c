@@ -471,7 +471,7 @@ static void sl_tx_timeout(struct net_device *dev)
 	spin_lock(&sl->lock);
 
 	if (netif_queue_stopped(dev)) {
-		if (!netif_running(dev))
+		if (!netif_running(dev) || !sl->tty)
 			goto out;
 
 		/* May be we must check transmitter timeout here ?
@@ -1324,7 +1324,7 @@ static int __init slip_init(void)
 	printk(KERN_INFO "SLIP linefill/keepalive option.\n");
 #endif
 
-	slip_devs = kzalloc(sizeof(struct net_device *)*slip_maxdev,
+	slip_devs = kcalloc(slip_maxdev, sizeof(struct net_device *),
 								GFP_KERNEL);
 	if (!slip_devs)
 		return -ENOMEM;

@@ -37,8 +37,6 @@ lib-y := ctype.o string.o vsprintf.o cmdline.o \
 	 earlycpio.o seq_buf.o siphash.o \
 	 nodemask.o win_minmax.o
 
-CFLAGS_kobject_uevent.o += -Wframe-larger-than=3072
-
 lib-$(!CONFIG_ARM64) += nmi_backtrace.o
 lib-$(CONFIG_MMU) += ioremap.o
 lib-$(CONFIG_SMP) += cpumask.o
@@ -49,12 +47,15 @@ lib-y	+= kobject.o klist.o
 obj-y	+= lockref.o
 
 KASAN_SANITIZE_find_bit.o := n
-obj-y += bcd.o div64.o sort.o parser.o debug_locks.o random32.o \
+obj-y += bcd.o div64.o sort.o parser.o random32.o \
 	 bust_spinlocks.o kasprintf.o bitmap.o scatterlist.o \
 	 gcd.o lcm.o list_sort.o uuid.o flex_array.o iov_iter.o clz_ctz.o \
 	 bsearch.o find_bit.o llist.o memweight.o kfifo.o \
 	 percpu-refcount.o percpu_ida.o rhashtable.o reciprocal_div.o \
 	 once.o refcount.o usercopy.o errseq.o
+
+obj-$(CONFIG_DEBUG_KERNEL) += debug_locks.o
+
 obj-y += string_helpers.o
 obj-$(CONFIG_TEST_STRING_HELPERS) += test-string_helpers.o
 obj-y += hexdump.o
@@ -271,3 +272,5 @@ CFLAGS_ubsan.o := $(call cc-option, -fno-stack-protector) $(DISABLE_STACKLEAK_PL
 obj-$(CONFIG_SBITMAP) += sbitmap.o
 
 obj-$(CONFIG_PARMAN) += parman.o
+
+obj-y += crypto/

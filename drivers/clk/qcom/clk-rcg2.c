@@ -240,17 +240,11 @@ static void disable_unprepare_rcg_srcs(struct clk *curr, struct clk *new)
 unsigned long
 clk_rcg2_calc_rate(unsigned long rate, u32 m, u32 n, u32 mode, u32 hid_div)
 {
-	if (hid_div) {
-		rate *= 2;
-		rate /= hid_div + 1;
-	}
+	if (hid_div)
+		rate = mult_frac(rate, 2, hid_div + 1);
 
-	if (mode) {
-		u64 tmp = rate;
-		tmp *= m;
-		do_div(tmp, n);
-		rate = tmp;
-	}
+	if (mode)
+		rate = mult_frac(rate, m, n);
 
 	return rate;
 }
@@ -791,7 +785,9 @@ const struct clk_ops clk_rcg2_ops = {
 	.set_rate_and_parent = clk_rcg2_set_rate_and_parent,
 	.list_rate = clk_rcg2_list_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 	.set_duty_cycle = clk_rcg2_set_duty_cycle,
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_ops);
@@ -806,7 +802,9 @@ const struct clk_ops clk_rcg2_floor_ops = {
 	.set_rate_and_parent = clk_rcg2_set_floor_rate_and_parent,
 	.list_rate = clk_rcg2_list_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_floor_ops);
 
@@ -887,7 +885,9 @@ const struct clk_ops clk_rcg2_shared_ops = {
 	.determine_rate = clk_rcg2_determine_rate,
 	.set_rate = clk_rcg2_shared_set_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_rcg2_shared_ops);
 
@@ -1016,7 +1016,9 @@ const struct clk_ops clk_edp_pixel_ops = {
 	.set_rate_and_parent = clk_edp_pixel_set_rate_and_parent,
 	.determine_rate = clk_edp_pixel_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_edp_pixel_ops);
 
@@ -1076,7 +1078,9 @@ const struct clk_ops clk_byte_ops = {
 	.set_rate_and_parent = clk_byte_set_rate_and_parent,
 	.determine_rate = clk_byte_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_byte_ops);
 
@@ -1150,7 +1154,9 @@ const struct clk_ops clk_byte2_ops = {
 	.set_rate_and_parent = clk_byte2_set_rate_and_parent,
 	.determine_rate = clk_byte2_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_byte2_ops);
 
@@ -1160,6 +1166,9 @@ static const struct frac_entry frac_table_pixel[] = {
 	{ 4, 9 },
 	{ 3, 8 },
 	{ 2, 9 },
+	{ 4, 9 },
+	{ 1, 1 },
+	{ 2, 3 },
 	{ }
 };
 
@@ -1245,7 +1254,9 @@ const struct clk_ops clk_pixel_ops = {
 	.set_rate_and_parent = clk_pixel_set_rate_and_parent,
 	.determine_rate = clk_pixel_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_pixel_ops);
 
@@ -1331,7 +1342,9 @@ const struct clk_ops clk_dp_ops = {
 	.set_rate_and_parent = clk_dp_set_rate_and_parent,
 	.determine_rate = clk_dp_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_dp_ops);
 
@@ -1423,7 +1436,9 @@ const struct clk_ops clk_gfx3d_ops = {
 	.set_rate_and_parent = clk_gfx3d_set_rate_and_parent,
 	.determine_rate = clk_gfx3d_determine_rate,
 	.list_registers = clk_rcg2_list_registers,
+#ifdef CONFIG_DEBUG_KERNEL
 	.bus_vote = clk_debug_bus_vote,
+#endif
 };
 EXPORT_SYMBOL_GPL(clk_gfx3d_ops);
 
@@ -1620,8 +1635,9 @@ int clk_rcg2_get_dfs_clock_rate(struct clk_rcg2 *clk, struct device *dev,
 	if (!(val & SE_CMD_DFS_EN))
 		return ret;
 
-	dfs_freq_tbl = devm_kzalloc(dev, MAX_PERF_LEVEL *
-				sizeof(struct freq_tbl), GFP_KERNEL);
+	dfs_freq_tbl = devm_kcalloc(dev,
+				    MAX_PERF_LEVEL, sizeof(struct freq_tbl),
+				    GFP_KERNEL);
 	if (!dfs_freq_tbl)
 		return -ENOMEM;
 

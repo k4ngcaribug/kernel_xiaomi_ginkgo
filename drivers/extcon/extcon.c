@@ -204,6 +204,14 @@ struct __extcon_info {
  * @attr_name:		"name" sysfs entry
  * @attr_state:		"state" sysfs entry
  * @attrs:		the array pointing to attr_name and attr_state for attr_g
+ * @usb_propval:	the array of USB connector properties
+ * @chg_propval:	the array of charger connector properties
+ * @jack_propval:	the array of jack connector properties
+ * @disp_propval:	the array of display connector properties
+ * @usb_bits:		the bit array of the USB connector property capabilities
+ * @chg_bits:		the bit array of the charger connector property capabilities
+ * @jack_bits:		the bit array of the jack connector property capabilities
+ * @disp_bits:		the bit array of the display connector property capabilities
  */
 struct extcon_cable {
 	struct extcon_dev *edev;
@@ -1098,7 +1106,7 @@ static void dummy_sysfs_dev_release(struct device *dev)
  * @supported_cable:	the array of the supported external connectors
  *			ending with EXTCON_NONE.
  *
- * Note that this function allocates the memory for extcon device 
+ * Note that this function allocates the memory for extcon device
  * and initialize default setting for the extcon device.
  *
  * Returns the pointer memory of allocated extcon_dev if success
@@ -1185,8 +1193,9 @@ int extcon_dev_register(struct extcon_dev *edev)
 		char *str;
 		struct extcon_cable *cable;
 
-		edev->cables = kzalloc(sizeof(struct extcon_cable) *
-				       edev->max_supported, GFP_KERNEL);
+		edev->cables = kcalloc(edev->max_supported,
+				       sizeof(struct extcon_cable),
+				       GFP_KERNEL);
 		if (!edev->cables) {
 			ret = -ENOMEM;
 			goto err_sysfs_alloc;
@@ -1195,7 +1204,7 @@ int extcon_dev_register(struct extcon_dev *edev)
 			cable = &edev->cables[index];
 
 			snprintf(buf, 10, "cable.%d", index);
-			str = kzalloc(sizeof(char) * (strlen(buf) + 1),
+			str = kzalloc(strlen(buf) + 1,
 				      GFP_KERNEL);
 			if (!str) {
 				for (index--; index >= 0; index--) {
@@ -1236,15 +1245,17 @@ int extcon_dev_register(struct extcon_dev *edev)
 		for (index = 0; edev->mutually_exclusive[index]; index++)
 			;
 
-		edev->attrs_muex = kzalloc(sizeof(struct attribute *) *
-					   (index + 1), GFP_KERNEL);
+		edev->attrs_muex = kcalloc(index + 1,
+					   sizeof(struct attribute *),
+					   GFP_KERNEL);
 		if (!edev->attrs_muex) {
 			ret = -ENOMEM;
 			goto err_muex;
 		}
 
-		edev->d_attrs_muex = kzalloc(sizeof(struct device_attribute) *
-					     index, GFP_KERNEL);
+		edev->d_attrs_muex = kcalloc(index,
+					     sizeof(struct device_attribute),
+					     GFP_KERNEL);
 		if (!edev->d_attrs_muex) {
 			ret = -ENOMEM;
 			kfree(edev->attrs_muex);
@@ -1253,7 +1264,7 @@ int extcon_dev_register(struct extcon_dev *edev)
 
 		for (index = 0; edev->mutually_exclusive[index]; index++) {
 			sprintf(buf, "0x%x", edev->mutually_exclusive[index]);
-			name = kzalloc(sizeof(char) * (strlen(buf) + 1),
+			name = kzalloc(strlen(buf) + 1,
 				       GFP_KERNEL);
 			if (!name) {
 				for (index--; index >= 0; index--) {
@@ -1279,8 +1290,9 @@ int extcon_dev_register(struct extcon_dev *edev)
 
 	if (edev->max_supported) {
 		edev->extcon_dev_type.groups =
-			kzalloc(sizeof(struct attribute_group *) *
-				(edev->max_supported + 2), GFP_KERNEL);
+			kcalloc(edev->max_supported + 2,
+				sizeof(struct attribute_group *),
+				GFP_KERNEL);
 		if (!edev->extcon_dev_type.groups) {
 			ret = -ENOMEM;
 			goto err_alloc_groups;
@@ -1299,26 +1311,14 @@ int extcon_dev_register(struct extcon_dev *edev)
 		edev->dev.type = &edev->extcon_dev_type;
 	}
 
-	ret = device_register(&edev->dev);
-	if (ret) {
-		put_device(&edev->dev);
-		goto err_dev;
-	}
-
 	spin_lock_init(&edev->lock);
-	edev->nh = devm_kcalloc(&edev->dev, edev->max_supported,
-				sizeof(*edev->nh), GFP_KERNEL);
-	if (!edev->nh) {
-		ret = -ENOMEM;
-		device_unregister(&edev->dev);
-		goto err_dev;
-	}
-
-	edev->bnh = devm_kzalloc(&edev->dev,
-			sizeof(*edev->bnh) * edev->max_supported, GFP_KERNEL);
-	if (!edev->bnh) {
-		ret = -ENOMEM;
-		goto err_dev;
+	if (edev->max_supported) {
+		edev->nh = kcalloc(edev->max_supported, sizeof(*edev->nh),
+				GFP_KERNEL);
+		if (!edev->nh) {
+			ret = -ENOMEM;
+			goto err_alloc_nh;
+		}
 	}
 
 	for (index = 0; index < edev->max_supported; index++)
@@ -1329,6 +1329,19 @@ int extcon_dev_register(struct extcon_dev *edev)
 	dev_set_drvdata(&edev->dev, edev);
 	edev->state = 0;
 
+	ret = device_register(&edev->dev);
+	if (ret) {
+		put_device(&edev->dev);
+		goto err_dev;
+	}
+
+	edev->bnh = devm_kzalloc(&edev->dev,
+			sizeof(*edev->bnh) * edev->max_supported, GFP_KERNEL);
+	if (!edev->bnh) {
+		ret = -ENOMEM;
+		goto err_dev;
+	}
+
 	mutex_lock(&extcon_dev_list_lock);
 	list_add(&edev->entry, &extcon_dev_list);
 	mutex_unlock(&extcon_dev_list_lock);
@@ -1336,6 +1349,9 @@ int extcon_dev_register(struct extcon_dev *edev)
 	return 0;
 
 err_dev:
+	if (edev->max_supported)
+		kfree(edev->nh);
+err_alloc_nh:
 	if (edev->max_supported)
 		kfree(edev->extcon_dev_type.groups);
 err_alloc_groups:
@@ -1396,6 +1412,7 @@ void extcon_dev_unregister(struct extcon_dev *edev)
 	if (edev->max_supported) {
 		kfree(edev->extcon_dev_type.groups);
 		kfree(edev->cables);
+		kfree(edev->nh);
 	}
 
 	put_device(&edev->dev);

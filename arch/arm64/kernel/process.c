@@ -64,7 +64,7 @@
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
-unsigned long __stack_chk_guard __ro_after_init;
+__visible unsigned long __stack_chk_guard __ro_after_init;
 EXPORT_SYMBOL(__stack_chk_guard);
 #endif
 
@@ -199,7 +199,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	if (addr < KIMAGE_VADDR || addr > -256UL)
 		return;
 
-	printk("\n%s: %pS:\n", name, addr);
+	printk("\n%s: %ldS:\n", name, addr);
 
 	/*
 	 * round address down to a 32 bit boundary
@@ -264,10 +264,13 @@ void __show_regs(struct pt_regs *regs)
 	i = top_reg;
 
 	while (i >= 0) {
-		printk("x%-2d: %016llx", i, regs->regs[i]);
+		printk("x%-2d: %016llx ", i, regs->regs[i]);
+		i--;
 
-		while (i-- % 3)
-			pr_cont(" x%-2d: %016llx", i, regs->regs[i]);
+		if (i % 2 == 0) {
+			pr_cont("x%-2d: %016llx ", i, regs->regs[i]);
+			i--;
+		}
 
 		pr_cont("\n");
 	}

@@ -53,8 +53,12 @@ static u64 parse_audio_format_i_type(struct snd_usb_audio *chip,
 	case UAC_VERSION_1:
 	default: {
 		struct uac_format_type_i_discrete_descriptor *fmt = _fmt;
-		if (format >= 64)
-			return 0; /* invalid format */
+		if (format >= 64) {
+			usb_audio_info(chip,
+				       "%u:%d: invalid format type %#x is detected, processed as PCM\n",
+				       fp->iface, fp->altsetting, format);
+			format = UAC_FORMAT_TYPE_I_PCM;
+		}
 		sample_width = fmt->bBitResolution;
 		sample_bytes = fmt->bSubframeSize;
 		format = 1 << format;
@@ -206,7 +210,8 @@ static int parse_audio_format_rates_v1(struct snd_usb_audio *chip, struct audiof
 		 */
 		int r, idx;
 
-		fp->rate_table = kmalloc(sizeof(int) * nr_rates, GFP_KERNEL);
+		fp->rate_table = kmalloc_array(nr_rates, sizeof(int),
+					       GFP_KERNEL);
 		if (fp->rate_table == NULL)
 			return -ENOMEM;
 
@@ -433,7 +438,7 @@ static int parse_audio_format_rates_v2(struct snd_usb_audio *chip,
 		goto err_free;
 	}
 
-	fp->rate_table = kmalloc(sizeof(int) * fp->nr_rates, GFP_KERNEL);
+	fp->rate_table = kmalloc_array(fp->nr_rates, sizeof(int), GFP_KERNEL);
 	if (!fp->rate_table) {
 		ret = -ENOMEM;
 		goto err_free;

@@ -458,7 +458,7 @@ static bool unpack_trans_table(struct aa_ext *e, struct aa_profile *profile)
 		/* currently 4 exec bits and entries 0-3 are reserved iupcx */
 		if (size > 16 - 4)
 			goto fail;
-		profile->file.trans.table = kzalloc(sizeof(char *) * size,
+		profile->file.trans.table = kcalloc(size, sizeof(char *),
 						    GFP_KERNEL);
 		if (!profile->file.trans.table)
 			goto fail;
@@ -604,6 +604,10 @@ static struct aa_profile *unpack_profile(struct aa_ext *e, char **ns_name)
 
 	tmpname = aa_splitn_fqname(name, strlen(name), &tmpns, &ns_len);
 	if (tmpns) {
+		if (!tmpname) {
+			info = "empty profile name";
+			goto fail;
+		}
 		*ns_name = kstrndup(tmpns, ns_len, GFP_KERNEL);
 		if (!*ns_name) {
 			info = "out of memory";

@@ -1,31 +1,29 @@
-#define REG_DEV_ID				0x00
+#define REG_DEV_ID			0x00
 #define REG_SW_RESET			0x01
-#define	REG_MODE				0x02
-#define REG_CONTROL				0x03
+#define REG_MODE			0x02
+#define REG_CONTROL			0x03
 #define REG_RATIO_LSB			0x04
 #define REG_RATIO_MSB			0x05
-#define REG_PWM					0x06
-#define REG_RAMP_ON				0x07
-#define REG_TRANS_RAMP			0x08
+#define REG_PWM			0x06
+#define REG_RAMP_ON			0x07
+#define REG_TRANS_RAMP		0x08
 #define REG_FLASH_SETTING		0x09
-#define REG_STATUS				0x0A
+#define REG_STATUS			0x0A
 
 #define BIT_CH3_FAULT			BIT(7)
 #define BIT_CH2_FAULT			BIT(6)
 #define BIT_CH1_FAULT			BIT(5)
 #define BIT_FLASH_TIMEOUT		BIT(4)
-#define BIT_OVP					BIT(3)
-#define BIT_UVLO				BIT(2)
-#define BIT_OCP					BIT(1)
-#define BIT_THERMAL_SHUTDOWN	BIT(0)
+#define BIT_OVP			BIT(3)
+#define BIT_UVLO			BIT(2)
+#define BIT_OCP			BIT(1)
+#define BIT_THERMAL_SHUTDOWN 		BIT(0)
 
 #define RESET_CONDITION_BITS		\
 	(BIT_CH3_FAULT | BIT_CH2_FAULT | BIT_CH1_FAULT | BIT_OVP | BIT_OCP)
 
-#define KTD_I2C_NAME            "ktd,ktd3137"
-#define DEFAULT_PWM_NAME    "ktd-backlight"
-
-//struct i2c_client *ktd3137_client;
+#define KTD_I2C_NAME		"ktd,ktd3137"
+#define DEFAULT_PWM_NAME	"ktd-backlight"
 
 struct ktd3137_bl_pdata {
 	bool pwm_mode;
@@ -69,4 +67,3 @@ struct ktd3137_chip {
 	unsigned int ktd_flash_setting_reg;
 	unsigned int ktd_status_reg;
 };
-

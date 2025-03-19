@@ -117,8 +117,8 @@ $(obj)/configs.o: $(obj)/config_data.h
 
 targets += config_data.gz
 
-ifdef CONFIG_MACH_XIAOMI_C3J
-STOCK_DEFCONFIG := arch/arm64/configs/ginkgo-stock_defconfig
+ifdef CONFIG_MACH_XIAOMI_GINKGO
+STOCK_DEFCONFIG := arch/arm64/configs/vendor/ginkgo-stock_defconfig
 else
 STOCK_DEFCONFIG := $(KCONFIG_CONFIG)
 endif

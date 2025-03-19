@@ -66,7 +66,7 @@ static struct sde_rot_cfg *_rot_offset(enum sde_rot rot,
  * @ptr: private pointer to rotator platform device
  * return: None
  */
-static __maybe_unused void _sde_hw_rot_reg_dump(void *ptr)
+static void _sde_hw_rot_reg_dump(void *ptr)
 {
 	sde_rotator_inline_reg_dump((struct platform_device *) ptr);
 }
@@ -766,8 +766,8 @@ static const struct sde_format_extended *sde_hw_rot_get_format_caps(
 	sde_rotator_inline_get_pixfmt_caps(pdev, true, v4l_pixfmts, len);
 
 	/* allocate one more to indicate termination */
-	drm_pixfmts = kzalloc((len + 1) * sizeof(struct sde_format_extended),
-			GFP_KERNEL);
+	drm_pixfmts = kcalloc(len + 1, sizeof(struct sde_format_extended),
+			      GFP_KERNEL);
 	if (!drm_pixfmts)
 		goto done;
 

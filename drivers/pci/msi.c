@@ -495,7 +495,7 @@ static int populate_msi_sysfs(struct pci_dev *pdev)
 		return 0;
 
 	/* Dynamically create the MSI attributes for the PCI device */
-	msi_attrs = kzalloc(sizeof(void *) * (num_msi + 1), GFP_KERNEL);
+	msi_attrs = kcalloc(num_msi + 1, sizeof(void *), GFP_KERNEL);
 	if (!msi_attrs)
 		return -ENOMEM;
 	for_each_pci_msi_entry(entry, pdev) {
@@ -522,7 +522,7 @@ static int populate_msi_sysfs(struct pci_dev *pdev)
 	msi_irq_group->name = "msi_irqs";
 	msi_irq_group->attrs = msi_attrs;
 
-	msi_irq_groups = kzalloc(sizeof(void *) * 2, GFP_KERNEL);
+	msi_irq_groups = kcalloc(2, sizeof(void *), GFP_KERNEL);
 	if (!msi_irq_groups)
 		goto error_irq_group;
 	msi_irq_groups[0] = msi_irq_group;
@@ -796,9 +796,6 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 		goto out_disable;
 	}
 
-	/* Ensure that all table entries are masked. */
-	msix_mask_all(base, tsize);
-
 	ret = msix_setup_entries(dev, base, entries, nvec, affd);
 	if (ret)
 		goto out_disable;
@@ -821,6 +818,16 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 	/* Set MSI-X enabled bits and unmask the function */
 	pci_intx_for_msi(dev, 0);
 	dev->msix_enabled = 1;
+
+	/*
+	 * Ensure that all table entries are masked to prevent
+	 * stale entries from firing in a crash kernel.
+	 *
+	 * Done late to deal with a broken Marvell NVME device
+	 * which takes the MSI-X mask bits into account even
+	 * when MSI-X is disabled, which prevents MSI delivery.
+	 */
+	msix_mask_all(base, tsize);
 	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_MASKALL, 0);
 
 	pcibios_free_irq(dev);
@@ -847,7 +854,7 @@ out_free:
 	free_msi_irqs(dev);
 
 out_disable:
-	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_ENABLE, 0);
+	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_MASKALL | PCI_MSIX_FLAGS_ENABLE, 0);
 
 	return ret;
 }
@@ -1373,7 +1380,7 @@ irq_hw_number_t pci_msi_domain_calc_hwirq(struct pci_dev *dev,
 {
 	return (irq_hw_number_t)desc->msi_attrib.entry_nr |
 		PCI_DEVID(dev->bus->number, dev->devfn) << 11 |
-		(pci_domain_nr(dev->bus) & 0xFFFFFFFF) << 27;
+		((irq_hw_number_t)(pci_domain_nr(dev->bus) & 0xFFFFFFFF)) << 27;
 }
 
 static inline bool pci_msi_desc_is_multi_msi(struct msi_desc *desc)

@@ -350,7 +350,7 @@ struct kgsl_device {
 	.halt_gate = COMPLETION_INITIALIZER((_dev).halt_gate),\
 	.idle_check_ws = __WORK_INITIALIZER((_dev).idle_check_ws,\
 			kgsl_idle_check),\
-	.context_idr = IDR_INIT,\
+	.context_idr = IDR_INIT(_dev),\
 	.wait_queue = __WAIT_QUEUE_HEAD_INITIALIZER((_dev).wait_queue),\
 	.active_cnt_wq = __WAIT_QUEUE_HEAD_INITIALIZER((_dev).active_cnt_wq),\
 	.mutex = __MUTEX_INITIALIZER((_dev).mutex),\
@@ -761,11 +761,8 @@ bool kgsl_event_pending(struct kgsl_device *device,
 		kgsl_event_func func, void *priv);
 int kgsl_add_event(struct kgsl_device *device, struct kgsl_event_group *group,
 		unsigned int timestamp, kgsl_event_func func, void *priv);
-int kgsl_add_low_prio_event(struct kgsl_device *device,
-		struct kgsl_event_group *group, unsigned int timestamp,
-		kgsl_event_func func, void *priv);
 void kgsl_process_event_group(struct kgsl_device *device,
-		struct kgsl_event_group *group);
+	struct kgsl_event_group *group);
 void kgsl_flush_event_group(struct kgsl_device *device,
 		struct kgsl_event_group *group);
 void kgsl_process_event_groups(struct kgsl_device *device);

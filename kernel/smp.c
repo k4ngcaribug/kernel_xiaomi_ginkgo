@@ -127,8 +127,7 @@ static __always_inline void csd_lock(struct __call_single_data *csd)
 
 static __always_inline void csd_unlock(struct __call_single_data *csd)
 {
-	if (!(csd->flags & CSD_FLAG_LOCK))
-		return;
+	WARN_ON(!(csd->flags & CSD_FLAG_LOCK));
 
 	/*
 	 * ensure we're all done before releasing data:
@@ -145,7 +144,7 @@ extern void send_call_function_single_ipi(int cpu);
  * for execution on the given CPU. data must already have
  * ->func, ->info, and ->flags set.
  */
-int generic_exec_single(int cpu, struct __call_single_data *csd,
+static int generic_exec_single(int cpu, struct __call_single_data *csd,
 			       smp_call_func_t func, void *info)
 {
 	if (cpu == smp_processor_id()) {
@@ -228,7 +227,7 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline)
 
 	/* There shouldn't be any pending callbacks on an offline CPU. */
 	if (unlikely(warn_cpu_offline && !cpu_online(smp_processor_id()) &&
-		     !warned && !llist_empty(head))) {
+		     !warned && entry != NULL)) {
 		warned = true;
 		WARN(1, "IPI on offline CPU %d\n", smp_processor_id());
 
@@ -840,6 +839,7 @@ int smp_call_on_cpu(unsigned int cpu, int (*func)(void *), void *par, bool phys)
 
 	queue_work_on(cpu, system_wq, &sscs.work);
 	wait_for_completion(&sscs.done);
+	destroy_work_on_stack(&sscs.work);
 
 	return sscs.ret;
 }

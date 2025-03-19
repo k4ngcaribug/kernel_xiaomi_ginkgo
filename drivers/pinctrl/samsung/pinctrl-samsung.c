@@ -651,7 +651,7 @@ static struct samsung_pin_group *samsung_pinctrl_create_groups(
 	const struct pinctrl_pin_desc *pdesc;
 	int i;
 
-	groups = devm_kzalloc(dev, ctrldesc->npins * sizeof(*groups),
+	groups = devm_kcalloc(dev, ctrldesc->npins, sizeof(*groups),
 				GFP_KERNEL);
 	if (!groups)
 		return ERR_PTR(-EINVAL);
@@ -688,7 +688,7 @@ static int samsung_pinctrl_create_function(struct device *dev,
 
 	func->name = func_np->full_name;
 
-	func->groups = devm_kzalloc(dev, npins * sizeof(char *), GFP_KERNEL);
+	func->groups = devm_kcalloc(dev, npins, sizeof(char *), GFP_KERNEL);
 	if (!func->groups)
 		return -ENOMEM;
 
@@ -745,7 +745,7 @@ static struct samsung_pmx_func *samsung_pinctrl_create_functions(
 		}
 	}
 
-	functions = devm_kzalloc(dev, func_cnt * sizeof(*functions),
+	functions = devm_kcalloc(dev, func_cnt, sizeof(*functions),
 					GFP_KERNEL);
 	if (!functions)
 		return ERR_PTR(-ENOMEM);
@@ -842,8 +842,9 @@ static int samsung_pinctrl_register(struct platform_device *pdev,
 	ctrldesc->pmxops = &samsung_pinmux_ops;
 	ctrldesc->confops = &samsung_pinconf_ops;
 
-	pindesc = devm_kzalloc(&pdev->dev, sizeof(*pindesc) *
-			drvdata->nr_pins, GFP_KERNEL);
+	pindesc = devm_kcalloc(&pdev->dev,
+			       drvdata->nr_pins, sizeof(*pindesc),
+			       GFP_KERNEL);
 	if (!pindesc)
 		return -ENOMEM;
 	ctrldesc->pins = pindesc;
@@ -857,8 +858,9 @@ static int samsung_pinctrl_register(struct platform_device *pdev,
 	 * allocate space for storing the dynamically generated names for all
 	 * the pins which belong to this pin-controller.
 	 */
-	pin_names = devm_kzalloc(&pdev->dev, sizeof(char) * PIN_NAME_LENGTH *
-					drvdata->nr_pins, GFP_KERNEL);
+	pin_names = devm_kzalloc(&pdev->dev,
+				 array3_size(sizeof(char), PIN_NAME_LENGTH, drvdata->nr_pins),
+				 GFP_KERNEL);
 	if (!pin_names)
 		return -ENOMEM;
 
@@ -975,6 +977,16 @@ samsung_pinctrl_get_soc_data_for_of_alias(struct platform_device *pdev)
 	return &(of_data->ctrl[id]);
 }
 
+static void samsung_banks_of_node_put(struct samsung_pinctrl_drv_data *d)
+{
+	struct samsung_pin_bank *bank;
+	unsigned int i;
+
+	bank = d->pin_banks;
+	for (i = 0; i < d->nr_banks; ++i, ++bank)
+		of_node_put(bank->of_node);
+}
+
 /* retrieve the soc specific data */
 static const struct samsung_pin_ctrl *
 samsung_pinctrl_get_soc_data(struct samsung_pinctrl_drv_data *d,
@@ -1089,19 +1101,19 @@ static int samsung_pinctrl_probe(struct platform_device *pdev)
 	if (ctrl->retention_data) {
 		drvdata->retention_ctrl = ctrl->retention_data->init(drvdata,
 							  ctrl->retention_data);
-		if (IS_ERR(drvdata->retention_ctrl))
-			return PTR_ERR(drvdata->retention_ctrl);
+		if (IS_ERR(drvdata->retention_ctrl)) {
+			ret = PTR_ERR(drvdata->retention_ctrl);
+			goto err_put_banks;
+		}
 	}
 
 	ret = samsung_pinctrl_register(pdev, drvdata);
 	if (ret)
-		return ret;
+		goto err_put_banks;
 
 	ret = samsung_gpiolib_register(pdev, drvdata);
-	if (ret) {
-		samsung_pinctrl_unregister(pdev, drvdata);
-		return ret;
-	}
+	if (ret)
+		goto err_unregister;
 
 	if (ctrl->eint_gpio_init)
 		ctrl->eint_gpio_init(drvdata);
@@ -1111,6 +1123,12 @@ static int samsung_pinctrl_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, drvdata);
 
 	return 0;
+
+err_unregister:
+	samsung_pinctrl_unregister(pdev, drvdata);
+err_put_banks:
+	samsung_banks_of_node_put(drvdata);
+	return ret;
 }
 
 /**

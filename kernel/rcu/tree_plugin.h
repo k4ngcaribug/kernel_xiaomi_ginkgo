@@ -1755,12 +1755,23 @@ static void increment_cpu_stall_ticks(void)
  */
 
 
-/* Parse the boot-time rcu_nocb_mask CPU list from the kernel parameters. */
+/*
+ * Parse the boot-time rcu_nocb_mask CPU list from the kernel parameters.
+ * The string after the "rcu_nocbs=" is either "all" for all CPUs, or a
+ * comma-separated list of CPUs and/or CPU ranges.  If an invalid list is
+ * given, a warning is emitted and all CPUs are offloaded.
+ */
 static int __init rcu_nocb_setup(char *str)
 {
 	alloc_bootmem_cpumask_var(&rcu_nocb_mask);
 	have_rcu_nocb_mask = true;
-	cpulist_parse(str, rcu_nocb_mask);
+	if (!strcasecmp(str, "all"))
+		cpumask_setall(rcu_nocb_mask);
+	else
+		if (cpulist_parse(str, rcu_nocb_mask)) {
+			pr_warn("rcu_nocbs= bad CPU range, all CPUs set\n");
+			cpumask_setall(rcu_nocb_mask);
+		}
 	return 1;
 }
 __setup("rcu_nocbs=", rcu_nocb_setup);
@@ -2385,8 +2396,8 @@ static void rcu_spawn_one_nocb_kthread(struct rcu_state *rsp, int cpu)
 	}
 
 	/* Spawn the kthread for this CPU and RCU flavor. */
-	t = kthread_run_perf_critical(cpu_lp_mask, rcu_nocb_kthread, rdp_spawn,
-				      "rcuo%c/%d", rsp->abbr, cpu);
+	t = kthread_run(rcu_nocb_kthread, rdp_spawn,
+			"rcuo%c/%d", rsp->abbr, cpu);
 	BUG_ON(IS_ERR(t));
 	WRITE_ONCE(rdp_spawn->nocb_kthread, t);
 }

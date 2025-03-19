@@ -490,12 +490,14 @@ static int qp_alloc_ppn_set(void *prod_q,
 		return VMCI_ERROR_ALREADY_EXISTS;
 
 	produce_ppns =
-	    kmalloc(num_produce_pages * sizeof(*produce_ppns), GFP_KERNEL);
+	    kmalloc_array(num_produce_pages, sizeof(*produce_ppns),
+			  GFP_KERNEL);
 	if (!produce_ppns)
 		return VMCI_ERROR_NO_MEM;
 
 	consume_ppns =
-	    kmalloc(num_consume_pages * sizeof(*consume_ppns), GFP_KERNEL);
+	    kmalloc_array(num_consume_pages, sizeof(*consume_ppns),
+			  GFP_KERNEL);
 	if (!consume_ppns) {
 		kfree(produce_ppns);
 		return VMCI_ERROR_NO_MEM;
@@ -952,6 +954,7 @@ static int qp_notify_peer_local(bool attach, struct vmci_handle handle)
 	u32 context_id = vmci_get_context_id();
 	struct vmci_event_qp ev;
 
+	memset(&ev, 0, sizeof(ev));
 	ev.msg.hdr.dst = vmci_make_handle(context_id, VMCI_EVENT_HANDLER);
 	ev.msg.hdr.src = vmci_make_handle(VMCI_HYPERVISOR_CONTEXT_ID,
 					  VMCI_CONTEXT_RESOURCE_ID);
@@ -1563,6 +1566,7 @@ static int qp_notify_peer(bool attach,
 	 * kernel.
 	 */
 
+	memset(&ev, 0, sizeof(ev));
 	ev.msg.hdr.dst = vmci_make_handle(peer_id, VMCI_EVENT_HANDLER);
 	ev.msg.hdr.src = vmci_make_handle(VMCI_HYPERVISOR_CONTEXT_ID,
 					  VMCI_CONTEXT_RESOURCE_ID);

@@ -57,6 +57,14 @@ struct keyslot_manager;
  */
 #define BLKCG_MAX_POLS		3
 
+static inline int blk_validate_block_size(unsigned long bsize)
+{
+	if (bsize < 512 || bsize > PAGE_SIZE || !is_power_of_2(bsize))
+		return -EINVAL;
+
+	return 0;
+}
+
 typedef void (rq_end_io_fn)(struct request *, blk_status_t);
 
 #define BLK_RL_SYNCFULL		(1U << 0)
@@ -119,8 +127,6 @@ typedef __u32 __bitwise req_flags_t;
 /* Look at ->special_vec for the actual data payload instead of the
    bio chain. */
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
-/* increased nr_pending for this request */
-#define RQF_PM_ADDED		((__force req_flags_t)(1 << 19))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
@@ -659,15 +665,14 @@ struct request_queue {
 #define QUEUE_FLAG_QUIESCED    28	/* queue has been quiesced */
 #define QUEUE_FLAG_PREEMPT_ONLY 29	/* only process REQ_PREEMPT requests */
 
-#define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_NONROT) |		\
+#define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
-				 (1 << QUEUE_FLAG_WC)		|	\
-				 (1 << QUEUE_FLAG_SAME_COMP))
+				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
+				 (0 << QUEUE_FLAG_ADD_RANDOM))
 
 #define QUEUE_FLAG_MQ_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
 				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
-				 (1 << QUEUE_FLAG_WC)		|	\
 				 (1 << QUEUE_FLAG_POLL))
 
 /*
@@ -1381,7 +1386,6 @@ static inline struct request *blk_map_queue_find_tag(struct blk_queue_tag *bqt,
 }
 
 extern int blkdev_issue_flush(struct block_device *, gfp_t, sector_t *);
-extern void blkdev_issue_flush_nowait(struct block_device *, gfp_t);
 extern int blkdev_issue_write_same(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, struct page *page);
 
@@ -1773,33 +1777,42 @@ int kblockd_schedule_delayed_work_on(int cpu, struct delayed_work *dwork, unsign
 int kblockd_mod_delayed_work_on(int cpu, struct delayed_work *dwork, unsigned long delay);
 
 #ifdef CONFIG_BLK_CGROUP
+/*
+ * This should not be using sched_clock(). A real patch is in progress
+ * to fix this up, until that is in place we need to disable preemption
+ * around sched_clock() in this function and set_io_start_time_ns().
+ */
 static inline void set_start_time_ns(struct request *req)
 {
-	req->start_time_ns = ktime_get_ns();
+	preempt_disable();
+	req->start_time_ns = sched_clock();
+	preempt_enable();
 }
 
 static inline void set_io_start_time_ns(struct request *req)
 {
-	req->io_start_time_ns = ktime_get_ns();
+	preempt_disable();
+	req->io_start_time_ns = sched_clock();
+	preempt_enable();
 }
 
-static inline u64 rq_start_time_ns(struct request *req)
+static inline uint64_t rq_start_time_ns(struct request *req)
 {
         return req->start_time_ns;
 }
 
-static inline u64 rq_io_start_time_ns(struct request *req)
+static inline uint64_t rq_io_start_time_ns(struct request *req)
 {
         return req->io_start_time_ns;
 }
 #else
 static inline void set_start_time_ns(struct request *req) {}
 static inline void set_io_start_time_ns(struct request *req) {}
-static inline u64 rq_start_time_ns(struct request *req)
+static inline uint64_t rq_start_time_ns(struct request *req)
 {
 	return 0;
 }
-static inline u64 rq_io_start_time_ns(struct request *req)
+static inline uint64_t rq_io_start_time_ns(struct request *req)
 {
 	return 0;
 }
@@ -1983,11 +1996,10 @@ struct block_device_operations {
 	int (*compat_ioctl) (struct block_device *, fmode_t, unsigned, unsigned long);
 	unsigned int (*check_events) (struct gendisk *disk,
 				      unsigned int clearing);
-	/* ->media_changed() is DEPRECATED, use ->check_events() instead */
-	int (*media_changed) (struct gendisk *);
 	void (*unlock_native_capacity) (struct gendisk *);
 	int (*revalidate_disk) (struct gendisk *);
 	int (*getgeo)(struct block_device *, struct hd_geometry *);
+	int (*set_read_only)(struct block_device *bdev, bool ro);
 	/* this callback is with swap_lock and sometimes page table lock held */
 	void (*swap_slot_free_notify) (struct block_device *, unsigned long);
 	struct module *owner;
@@ -2115,10 +2127,6 @@ static inline int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 				     sector_t *error_sector)
 {
 	return 0;
-}
-
-static inline void blkdev_issue_flush_nowait(struct block_device *bdev, gfp_t gfp_mask)
-{
 }
 
 #endif /* CONFIG_BLOCK */

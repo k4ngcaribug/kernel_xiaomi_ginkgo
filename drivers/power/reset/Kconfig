@@ -250,4 +250,3 @@ config SYSCON_REBOOT_MODE
 	  action according to the mode.
 
 endif
-

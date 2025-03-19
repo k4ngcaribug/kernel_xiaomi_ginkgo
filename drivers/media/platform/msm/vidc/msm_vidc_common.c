@@ -24,13 +24,6 @@
 #include "msm_vidc_clocks.h"
 #include "msm_cvp.h"
 
-static struct kmem_cache *kmem_buf_pool;
-
-void __init init_vidc_kmem_buf_pool(void)
-{
-	kmem_buf_pool = KMEM_CACHE(msm_vidc_buffer, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
-}
-
 #define MSM_VIDC_QBUF_BATCH_TIMEOUT 300
 #define IS_ALREADY_IN_STATE(__p, __d) (\
 	(__p >= __d)\
@@ -43,6 +36,22 @@ void __init init_vidc_kmem_buf_pool(void)
 #define V4L2_EVENT_RELEASE_BUFFER_REFERENCE \
 		V4L2_EVENT_MSM_VIDC_RELEASE_BUFFER_REFERENCE
 #define L_MODE V4L2_MPEG_VIDEO_H264_LOOP_FILTER_MODE_DISABLED_AT_SLICE_BOUNDARY
+
+#ifndef CONFIG_DEBUG_KERNEL
+int msm_vidc_debug = 0;
+EXPORT_SYMBOL(msm_vidc_debug);
+
+int msm_vidc_debug_out = VIDC_OUT_PRINTK;
+EXPORT_SYMBOL(msm_vidc_debug_out);
+
+int msm_vidc_fw_debug = 0x18;
+int msm_vidc_fw_debug_mode = 0;
+int msm_vidc_fw_low_power_mode = 1;
+bool msm_vidc_fw_coverage = !true;
+bool msm_vidc_thermal_mitigation_disabled = !true;
+int msm_vidc_clock_voting = !1;
+bool msm_vidc_syscache_disable = !true;
+#endif
 
 const char *const mpeg_video_vidc_extradata[] = {
 	"Extradata none",
@@ -98,8 +107,9 @@ static struct v4l2_ctrl **get_super_cluster(struct msm_vidc_inst *inst,
 				int num_ctrls)
 {
 	int c = 0;
-	struct v4l2_ctrl **cluster = kmalloc(sizeof(struct v4l2_ctrl *) *
-			num_ctrls, GFP_KERNEL);
+	struct v4l2_ctrl **cluster = kmalloc_array(num_ctrls,
+						   sizeof(struct v4l2_ctrl *),
+						   GFP_KERNEL);
 
 	if (!cluster || !inst) {
 		kfree(cluster);
@@ -4271,9 +4281,13 @@ static void populate_frame_data(struct vidc_frame_data *data,
 	tag_data.index = vb->index;
 	tag_data.type = vb->type;
 
-	msm_comm_fetch_tags(inst, &tag_data);
-	data->input_tag = tag_data.input_tag;
-	data->output_tag = tag_data.output_tag;
+	if (msm_comm_fetch_tags(inst, &tag_data)) {
+		data->input_tag = tag_data.input_tag;
+		data->output_tag = tag_data.output_tag;
+	} else {
+		data->input_tag = 0;
+		data->output_tag = 0;
+	}
 
 
 	extra_idx = EXTRADATA_IDX(vb->num_planes);
@@ -6683,7 +6697,7 @@ struct msm_vidc_buffer *msm_comm_get_vidc_buffer(struct msm_vidc_inst *inst,
 
 	if (!found) {
 		/* this is new vb2_buffer */
-		mbuf = kmem_cache_zalloc(kmem_buf_pool, GFP_KERNEL);
+		mbuf = kzalloc(sizeof(struct msm_vidc_buffer), GFP_KERNEL);
 		if (!mbuf) {
 			dprintk(VIDC_ERR, "%s: alloc msm_vidc_buffer failed\n",
 				__func__);
@@ -6966,7 +6980,7 @@ static void kref_free_mbuf(struct kref *kref)
 	struct msm_vidc_buffer *mbuf = container_of(kref,
 			struct msm_vidc_buffer, kref);
 
-	kmem_cache_free(kmem_buf_pool, mbuf);
+	kfree(mbuf);
 }
 
 void kref_put_mbuf(struct msm_vidc_buffer *mbuf)
@@ -7061,7 +7075,7 @@ exit:
 	mutex_unlock(&inst->buffer_tags.lock);
 }
 
-void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
+bool msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	struct vidc_tag_data *tag_data)
 {
 	struct vidc_tag_data *temp, *next;
@@ -7069,7 +7083,7 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	if (!inst || !tag_data) {
 		dprintk(VIDC_ERR, "%s: invalid params %pK %pK\n",
 				__func__, inst, tag_data);
-		return;
+		return false;
 	}
 	mutex_lock(&inst->buffer_tags.lock);
 	list_for_each_entry_safe(temp, next, &inst->buffer_tags.list, list) {
@@ -7077,10 +7091,13 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 				temp->type == tag_data->type) {
 			tag_data->input_tag = temp->input_tag;
 			tag_data->output_tag = temp->output_tag;
-			break;
+			mutex_unlock(&inst->buffer_tags.lock);
+			return true;
 		}
 	}
 	mutex_unlock(&inst->buffer_tags.lock);
+
+	return false;
 }
 
 void msm_comm_store_mark_data(struct msm_vidc_list *data_list,

@@ -428,19 +428,14 @@ static inline int clk_osm_read_reg(struct clk_osm *c, u32 offset)
 	return readl_relaxed((char *)c->vbases[OSM_BASE] + offset);
 }
 
-static inline int clk_osm_read_reg_no_log(struct clk_osm *c, u32 offset)
-{
-	return readl_relaxed_no_log((char *)c->vbases[OSM_BASE] + offset);
-}
-
 static inline int clk_osm_mb(struct clk_osm *c, int base)
 {
-	return readl_relaxed_no_log((char *)c->vbases[base] + VERSION_REG);
+	return readl_relaxed((char *)c->vbases[base] + VERSION_REG);
 }
 
 static inline int clk_osm_acd_mb(struct clk_osm *c)
 {
-	return readl_relaxed_no_log((char *)c->vbases[ACD_BASE] +
+	return readl_relaxed((char *)c->vbases[ACD_BASE] +
 				    ACD_HW_VERSION);
 }
 
@@ -784,7 +779,9 @@ const struct clk_ops clk_ops_cpu_osm_660 = {
 	.determine_rate = clk_osm_determine_rate,
 	.list_rate = clk_osm_list_rate,
 	.recalc_rate = clk_osm_recalc_rate,
+#ifdef CONFIG_DEBUG_KERNEL
 	.debug_init = clk_debug_measure_add,
+#endif
 };
 
 static const struct parent_map gcc_parent_map_1[] = {
@@ -2524,7 +2521,7 @@ static u64 clk_osm_get_cpu_cycle_counter(int cpu)
 	}
 
 	spin_lock_irqsave(&c->lock, flags);
-	val = clk_osm_read_reg_no_log(c, OSM_CYCLE_COUNTER_STATUS_REG);
+	val = clk_osm_read_reg(c, OSM_CYCLE_COUNTER_STATUS_REG);
 
 	if (val < c->prev_cycle_counter) {
 		/* Handle counter overflow */

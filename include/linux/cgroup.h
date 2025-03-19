@@ -68,6 +68,7 @@ struct css_task_iter {
 	struct list_head		iters_node;	/* css_set->task_iters */
 };
 
+extern struct file_system_type cgroup_fs_type;
 extern struct cgroup_root cgrp_dfl_root;
 extern struct css_set init_css_set;
 
@@ -420,6 +421,18 @@ static inline void cgroup_put(struct cgroup *cgrp)
 	css_put(&cgrp->self);
 }
 
+extern struct mutex cgroup_mutex;
+
+static inline void cgroup_lock(void)
+{
+	mutex_lock(&cgroup_mutex);
+}
+
+static inline void cgroup_unlock(void)
+{
+	mutex_unlock(&cgroup_mutex);
+}
+
 /**
  * task_css_set_check - obtain a task's css_set with extra access conditions
  * @task: the task to obtain css_set for
@@ -434,7 +447,6 @@ static inline void cgroup_put(struct cgroup *cgrp)
  * as locks used during the cgroup_subsys::attach() methods.
  */
 #ifdef CONFIG_PROVE_RCU
-extern struct mutex cgroup_mutex;
 extern spinlock_t css_set_lock;
 #define task_css_set_check(task, __c)					\
 	rcu_dereference_check((task)->cgroups,				\
@@ -565,27 +577,6 @@ static inline bool cgroup_is_descendant(struct cgroup *cgrp,
 }
 
 /**
- * cgroup_ancestor - find ancestor of cgroup
- * @cgrp: cgroup to find ancestor of
- * @ancestor_level: level of ancestor to find starting from root
- *
- * Find ancestor of cgroup at specified level starting from root if it exists
- * and return pointer to it. Return NULL if @cgrp doesn't have ancestor at
- * @ancestor_level.
- *
- * This function is safe to call as long as @cgrp is accessible.
- */
-static inline struct cgroup *cgroup_ancestor(struct cgroup *cgrp,
-					     int ancestor_level)
-{
-	if (cgrp->level < ancestor_level)
-		return NULL;
-	while (cgrp && cgrp->level > ancestor_level)
-		cgrp = cgroup_parent(cgrp);
-	return cgrp;
-}
-
-/**
  * task_under_cgroup_hierarchy - test task's membership of cgroup ancestry
  * @task: the task to be tested
  * @ancestor: possible ancestor of @task's cgroup
@@ -698,6 +689,8 @@ struct cgroup_subsys_state;
 struct cgroup;
 
 static inline void css_put(struct cgroup_subsys_state *css) {}
+static inline void cgroup_lock(void) {}
+static inline void cgroup_unlock(void) {}
 static inline int cgroup_attach_task_all(struct task_struct *from,
 					 struct task_struct *t) { return 0; }
 static inline int cgroupstats_build(struct cgroupstats *stats,

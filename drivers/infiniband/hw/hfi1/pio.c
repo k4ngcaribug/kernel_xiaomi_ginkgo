@@ -876,8 +876,9 @@ struct send_context *sc_alloc(struct hfi1_devdata *dd, int type,
 		 * so head == tail can mean empty.
 		 */
 		sc->sr_size = sci->credits + 1;
-		sc->sr = kzalloc_node(sizeof(union pio_shadow_ring) *
-				sc->sr_size, GFP_KERNEL, numa);
+		sc->sr = kcalloc_node(sc->sr_size,
+				      sizeof(union pio_shadow_ring),
+				      GFP_KERNEL, numa);
 		if (!sc->sr) {
 			sc_free(sc);
 			return NULL;
@@ -2030,9 +2031,9 @@ int init_pervl_scs(struct hfi1_devdata *dd)
 	hfi1_init_ctxt(dd->vld[15].sc);
 	dd->vld[15].mtu = enum_to_mtu(OPA_MTU_2048);
 
-	dd->kernel_send_context = kzalloc_node(dd->num_send_contexts *
-					sizeof(struct send_context *),
-					GFP_KERNEL, dd->node);
+	dd->kernel_send_context = kcalloc_node(dd->num_send_contexts,
+					       sizeof(struct send_context *),
+					       GFP_KERNEL, dd->node);
 	if (!dd->kernel_send_context)
 		goto freesc15;
 
@@ -2133,7 +2134,7 @@ int init_credit_return(struct hfi1_devdata *dd)
 				   "Unable to allocate credit return DMA range for NUMA %d\n",
 				   i);
 			ret = -ENOMEM;
-			goto done;
+			goto free_cr_base;
 		}
 	}
 	set_dev_node(&dd->pcidev->dev, dd->node);
@@ -2141,6 +2142,10 @@ int init_credit_return(struct hfi1_devdata *dd)
 	ret = 0;
 done:
 	return ret;
+
+free_cr_base:
+	free_credit_return(dd);
+	goto done;
 }
 
 void free_credit_return(struct hfi1_devdata *dd)

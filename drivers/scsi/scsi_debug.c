@@ -2181,11 +2181,11 @@ static int resp_mode_select(struct scsi_cmnd *scp,
 			    __func__, param_len, res);
 	md_len = mselect6 ? (arr[0] + 1) : (get_unaligned_be16(arr + 0) + 2);
 	bd_len = mselect6 ? arr[3] : get_unaligned_be16(arr + 6);
-	if (md_len > 2) {
+	off = bd_len + (mselect6 ? 4 : 8);
+	if (md_len > 2 || off >= res) {
 		mk_sense_invalid_fld(scp, SDEB_IN_DATA, 0, -1);
 		return check_condition_result;
 	}
-	off = bd_len + (mselect6 ? 4 : 8);
 	mpage = arr[off] & 0x3f;
 	ps = !!(arr[off] & 0x80);
 	if (ps) {
@@ -3164,7 +3164,7 @@ static int resp_comp_write(struct scsi_cmnd *scp,
 		return check_condition_result;
 	}
 	dnum = 2 * num;
-	arr = kzalloc(dnum * lb_size, GFP_ATOMIC);
+	arr = kcalloc(lb_size, dnum, GFP_ATOMIC);
 	if (NULL == arr) {
 		mk_sense_buffer(scp, ILLEGAL_REQUEST, INSUFF_RES_ASC,
 				INSUFF_RES_ASCQ);
@@ -5078,7 +5078,7 @@ static int __init scsi_debug_init(void)
 		}
 
 		map_size = lba_to_map_index(sdebug_store_sectors - 1) + 1;
-		map_storep = vmalloc(BITS_TO_LONGS(map_size) * sizeof(long));
+		map_storep = vmalloc(array_size(sizeof(long), BITS_TO_LONGS(map_size)));
 
 		pr_info("%lu provisioning blocks\n", map_size);
 

@@ -535,7 +535,7 @@ static int msm_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 	g = &pctrl->soc->groups[offset];
 	base = reassign_pctrl_reg(pctrl->soc, offset);
 
-	val = readl_relaxed(base + g->ctl_reg);
+	val = readl(base + g->ctl_reg);
 
 	/* 0 = output, 1 = input */
 	return val & BIT(g->oe_bit) ? 0 : 1;
@@ -605,7 +605,7 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 
 	g = &pctrl->soc->groups[offset];
 	base = reassign_pctrl_reg(pctrl->soc, offset);
-	ctl_reg = readl_relaxed(base + g->ctl_reg);
+	ctl_reg = readl(base + g->ctl_reg);
 
 	is_out = !!(ctl_reg & BIT(g->oe_bit));
 	func = (ctl_reg >> g->mux_bit) & 7;
@@ -2191,3 +2191,4 @@ int msm_pinctrl_remove(struct platform_device *pdev)
 	return 0;
 }
 EXPORT_SYMBOL(msm_pinctrl_remove);
+

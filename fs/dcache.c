@@ -698,12 +698,12 @@ static inline bool fast_dput(struct dentry *dentry)
 	 */
 	if (unlikely(ret < 0)) {
 		spin_lock(&dentry->d_lock);
-		if (dentry->d_lockref.count > 1) {
-			dentry->d_lockref.count--;
+		if (WARN_ON_ONCE(dentry->d_lockref.count <= 0)) {
 			spin_unlock(&dentry->d_lock);
 			return 1;
 		}
-		return 0;
+		dentry->d_lockref.count--;
+		goto locked;
 	}
 
 	/*
@@ -754,6 +754,7 @@ static inline bool fast_dput(struct dentry *dentry)
 	 * else could have killed it and marked it dead. Either way, we
 	 * don't need to do anything else.
 	 */
+locked:
 	if (dentry->d_lockref.count) {
 		spin_unlock(&dentry->d_lock);
 		return 1;
@@ -3317,9 +3318,9 @@ static void get_fs_root_rcu(struct fs_struct *fs, struct path *root)
  *
  * "buflen" should be positive.
  */
-char *d_path(const struct path *path, char *buf, int buflen)
+char *d_path_outlen(const struct path *path, char *buf, int *buflen)
 {
-	char *res = buf + buflen;
+	char *res = buf + *buflen;
 	struct path root;
 	int error;
 
@@ -3336,16 +3337,21 @@ char *d_path(const struct path *path, char *buf, int buflen)
 	 */
 	if (path->dentry->d_op && path->dentry->d_op->d_dname &&
 	    (!IS_ROOT(path->dentry) || path->dentry != path->mnt->mnt_root))
-		return path->dentry->d_op->d_dname(path->dentry, buf, buflen);
+		return path->dentry->d_op->d_dname(path->dentry, buf, *buflen);
 
 	rcu_read_lock();
 	get_fs_root_rcu(current->fs, &root);
-	error = path_with_deleted(path, &root, &res, &buflen);
+	error = path_with_deleted(path, &root, &res, buflen);
 	rcu_read_unlock();
 
 	if (error < 0)
 		res = ERR_PTR(error);
 	return res;
+}
+
+char *d_path(const struct path *path, char *buf, int buflen)
+{
+	return d_path_outlen(path, buf, &buflen);
 }
 EXPORT_SYMBOL(d_path);
 
@@ -3551,28 +3557,25 @@ out:
   
 bool is_subdir(struct dentry *new_dentry, struct dentry *old_dentry)
 {
-	bool result;
+	bool subdir;
 	unsigned seq;
 
 	if (new_dentry == old_dentry)
 		return true;
 
-	do {
-		/* for restarting inner loop in case of seq retry */
-		seq = read_seqbegin(&rename_lock);
-		/*
-		 * Need rcu_readlock to protect against the d_parent trashing
-		 * due to d_move
-		 */
-		rcu_read_lock();
-		if (d_ancestor(old_dentry, new_dentry))
-			result = true;
-		else
-			result = false;
-		rcu_read_unlock();
-	} while (read_seqretry(&rename_lock, seq));
-
-	return result;
+	/* Access d_parent under rcu as d_move() may change it. */
+	rcu_read_lock();
+	seq = read_seqbegin(&rename_lock);
+	subdir = d_ancestor(old_dentry, new_dentry);
+	 /* Try lockless once... */
+	if (read_seqretry(&rename_lock, seq)) {
+		/* ...else acquire lock for progress even on deep chains. */
+		read_seqlock_excl(&rename_lock);
+		subdir = d_ancestor(old_dentry, new_dentry);
+		read_sequnlock_excl(&rename_lock);
+	}
+	rcu_read_unlock();
+	return subdir;
 }
 
 static enum d_walk_ret d_genocide_kill(void *data, struct dentry *dentry)

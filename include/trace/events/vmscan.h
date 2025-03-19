@@ -78,29 +78,26 @@ TRACE_EVENT(mm_vmscan_kswapd_wake,
 
 TRACE_EVENT(mm_vmscan_wakeup_kswapd,
 
-	TP_PROTO(int nid, int zid, int order, gfp_t gfp_flags),
+	TP_PROTO(int nid, int zid, int order),
 
-	TP_ARGS(nid, zid, order, gfp_flags),
+	TP_ARGS(nid, zid, order),
 
 	TP_STRUCT__entry(
-		__field(	int,	nid		)
-		__field(	int,	zid		)
-		__field(	int,	order		)
-		__field(	gfp_t,	gfp_flags	)
+		__field(	int,		nid	)
+		__field(	int,		zid	)
+		__field(	int,		order	)
 	),
 
 	TP_fast_assign(
 		__entry->nid		= nid;
 		__entry->zid		= zid;
 		__entry->order		= order;
-		__entry->gfp_flags	= gfp_flags;
 	),
 
-	TP_printk("nid=%d zid=%d order=%d gfp_flags=%s",
+	TP_printk("nid=%d zid=%d order=%d",
 		__entry->nid,
 		__entry->zid,
-		__entry->order,
-		show_gfp_flags(__entry->gfp_flags))
+		__entry->order)
 );
 
 DECLARE_EVENT_CLASS(mm_vmscan_direct_reclaim_begin_template,
@@ -290,7 +287,7 @@ TRACE_EVENT(mm_vmscan_lru_isolate,
 		__field(unsigned long, nr_scanned)
 		__field(unsigned long, nr_skipped)
 		__field(unsigned long, nr_taken)
-		__field(isolate_mode_t, isolate_mode)
+		__field(unsigned int, isolate_mode)
 		__field(int, lru)
 	),
 
@@ -301,7 +298,7 @@ TRACE_EVENT(mm_vmscan_lru_isolate,
 		__entry->nr_scanned = nr_scanned;
 		__entry->nr_skipped = nr_skipped;
 		__entry->nr_taken = nr_taken;
-		__entry->isolate_mode = isolate_mode;
+		__entry->isolate_mode = (__force unsigned int)isolate_mode;
 		__entry->lru = lru;
 	),
 

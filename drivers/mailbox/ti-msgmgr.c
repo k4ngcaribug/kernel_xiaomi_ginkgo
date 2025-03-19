@@ -310,14 +310,20 @@ static int ti_msgmgr_send_data(struct mbox_chan *chan, void *data)
 		/* Ensure all unused data is 0 */
 		data_trail &= 0xFFFFFFFF >> (8 * (sizeof(u32) - trail_bytes));
 		writel(data_trail, data_reg);
-		data_reg++;
+		data_reg += sizeof(u32);
 	}
+
 	/*
 	 * 'data_reg' indicates next register to write. If we did not already
 	 * write on tx complete reg(last reg), we must do so for transmit
+	 * In addition, we also need to make sure all intermediate data
+	 * registers(if any required), are reset to 0 for TISCI backward
+	 * compatibility to be maintained.
 	 */
-	if (data_reg <= qinst->queue_buff_end)
-		writel(0, qinst->queue_buff_end);
+	while (data_reg <= qinst->queue_buff_end) {
+		writel(0, data_reg);
+		data_reg += sizeof(u32);
+	}
 
 	return 0;
 }
@@ -576,12 +582,12 @@ static int ti_msgmgr_probe(struct platform_device *pdev)
 	}
 	inst->num_valid_queues = queue_count;
 
-	qinst = devm_kzalloc(dev, sizeof(*qinst) * queue_count, GFP_KERNEL);
+	qinst = devm_kcalloc(dev, queue_count, sizeof(*qinst), GFP_KERNEL);
 	if (!qinst)
 		return -ENOMEM;
 	inst->qinsts = qinst;
 
-	chans = devm_kzalloc(dev, sizeof(*chans) * queue_count, GFP_KERNEL);
+	chans = devm_kcalloc(dev, queue_count, sizeof(*chans), GFP_KERNEL);
 	if (!chans)
 		return -ENOMEM;
 	inst->chans = chans;

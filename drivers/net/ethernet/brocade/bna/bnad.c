@@ -1543,8 +1543,9 @@ bnad_tx_msix_register(struct bnad *bnad, struct bnad_tx_info *tx_info,
 
 	for (i = 0; i < num_txqs; i++) {
 		vector_num = tx_info->tcb[i]->intr_vector;
-		sprintf(tx_info->tcb[i]->name, "%s TXQ %d", bnad->netdev->name,
-				tx_id + tx_info->tcb[i]->id);
+		snprintf(tx_info->tcb[i]->name, BNA_Q_NAME_SIZE, "%s TXQ %d",
+			 bnad->netdev->name,
+			 tx_id + tx_info->tcb[i]->id);
 		err = request_irq(bnad->msix_table[vector_num].vector,
 				  (irq_handler_t)bnad_msix_tx, 0,
 				  tx_info->tcb[i]->name,
@@ -1594,9 +1595,9 @@ bnad_rx_msix_register(struct bnad *bnad, struct bnad_rx_info *rx_info,
 
 	for (i = 0; i < num_rxps; i++) {
 		vector_num = rx_info->rx_ctrl[i].ccb->intr_vector;
-		sprintf(rx_info->rx_ctrl[i].ccb->name, "%s CQ %d",
-			bnad->netdev->name,
-			rx_id + rx_info->rx_ctrl[i].ccb->id);
+		snprintf(rx_info->rx_ctrl[i].ccb->name, BNA_Q_NAME_SIZE,
+			 "%s CQ %d", bnad->netdev->name,
+			 rx_id + rx_info->rx_ctrl[i].ccb->id);
 		err = request_irq(bnad->msix_table[vector_num].vector,
 				  (irq_handler_t)bnad_msix_rx, 0,
 				  rx_info->rx_ctrl[i].ccb->name,
@@ -3143,7 +3144,7 @@ bnad_set_rx_ucast_fltr(struct bnad *bnad)
 	if (uc_count > bna_attr(&bnad->bna)->num_ucmac)
 		goto mode_default;
 
-	mac_list = kzalloc(uc_count * ETH_ALEN, GFP_ATOMIC);
+	mac_list = kcalloc(ETH_ALEN, uc_count, GFP_ATOMIC);
 	if (mac_list == NULL)
 		goto mode_default;
 
@@ -3184,7 +3185,7 @@ bnad_set_rx_mcast_fltr(struct bnad *bnad)
 	if (mc_count > bna_attr(&bnad->bna)->num_mcmac)
 		goto mode_allmulti;
 
-	mac_list = kzalloc((mc_count + 1) * ETH_ALEN, GFP_ATOMIC);
+	mac_list = kcalloc(mc_count + 1, ETH_ALEN, GFP_ATOMIC);
 
 	if (mac_list == NULL)
 		goto mode_allmulti;

@@ -215,7 +215,6 @@ struct msm_geni_serial_port {
 	bool s_cmd;
 	struct completion m_cmd_timeout;
 	struct completion s_cmd_timeout;
-	struct mutex ioctl_mutex;
 };
 
 static const struct uart_ops msm_geni_serial_pops;
@@ -468,7 +467,7 @@ static bool device_pending_suspend(struct uart_port *uport)
 {
 	int usage_count = atomic_read(&uport->dev->power.usage_count);
 
-	return (pm_runtime_status_suspended(uport->dev) || !usage_count);
+	return (pm_runtime_status_suspended(uport->dev) && !usage_count);
 }
 
 static bool check_transfers_inflight(struct uart_port *uport)
@@ -596,30 +595,27 @@ static int msm_geni_serial_ioctl(struct uart_port *uport, unsigned int cmd,
 						unsigned long arg)
 {
 	struct msm_geni_serial_port *port = GET_DEV_PORT(uport);
-	int ret;
-
-	mutex_lock(&port->ioctl_mutex);
+	int ret = -ENOIOCTLCMD;
 
 	if (port->pm_auto_suspend_disable)
 		return ret;
 
 	switch (cmd) {
-	case TIOCPMGET:
+	case TIOCPMGET: {
 		ret = vote_clock_on(uport);
 		break;
-	case TIOCPMPUT:
+	}
+	case TIOCPMPUT: {
 		ret = vote_clock_off(uport);
 		break;
-	case TIOCPMACT:
+	}
+	case TIOCPMACT: {
 		ret = !pm_runtime_status_suspended(uport->dev);
 		break;
+	}
 	default:
-		ret = -ENOIOCTLCMD;
 		break;
 	}
-
-	mutex_unlock(&port->ioctl_mutex);
-
 	return ret;
 }
 
@@ -2976,15 +2972,19 @@ static void console_unregister(struct uart_driver *drv)
 }
 #endif /* defined(CONFIG_SERIAL_CORE_CONSOLE) || defined(CONFIG_CONSOLE_POLL) */
 
+#ifdef CONFIG_DEBUG_FS
 static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 {
 	struct msm_geni_serial_port *msm_port = GET_DEV_PORT(uport);
+#ifdef CONFIG_IPC_LOGGING
 	char name[30];
+#endif
 
 	msm_port->dbg = debugfs_create_dir(dev_name(uport->dev), NULL);
 	if (IS_ERR_OR_NULL(msm_port->dbg))
 		dev_err(uport->dev, "Failed to create dbg dir\n");
 
+#ifdef CONFIG_IPC_LOGGING
 	if (!console) {
 		memset(name, 0, sizeof(name));
 		if (!msm_port->ipc_log_rx) {
@@ -3033,7 +3033,9 @@ static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 				dev_info(uport->dev, "Err in Misc IPC Log\n");
 		}
 	}
+#endif
 }
+#endif
 
 static void msm_geni_serial_cons_pm(struct uart_port *uport,
 		unsigned int new_state, unsigned int old_state)
@@ -3425,7 +3427,9 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 	device_create_file(uport->dev, &dev_attr_loopback);
 	device_create_file(uport->dev, &dev_attr_xfer_mode);
 	device_create_file(uport->dev, &dev_attr_ver_info);
+#ifdef CONFIG_DEBUG_FS
 	msm_geni_serial_debug_init(uport, is_console);
+#endif
 	dev_port->port_setup = false;
 	ret = msm_geni_serial_get_ver_info(uport);
 	if (ret)
@@ -3663,8 +3667,8 @@ static void msm_geni_serial_ssr_down(struct device *dev)
 	port->uart_ssr.is_ssr_down = true;
 	ret = pm_runtime_force_suspend(uport->dev);
 	if (ret) {
-		dev_err(uport->dev, "%s:force suspend failed %d\n",
-						ret, __func__);
+		dev_err(uport->dev, "%s:force suspend failed %d\n", __func__,
+			ret);
 		goto exit;
 	}
 
@@ -3716,7 +3720,6 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_serial_ports[i].uport.ops = &msm_geni_serial_pops;
 		msm_geni_serial_ports[i].uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_serial_ports[i].uport.line = i;
-		mutex_init(&msm_geni_serial_ports[i].ioctl_mutex);
 	}
 
 	for (i = 0; i < GENI_UART_CONS_PORTS; i++) {
@@ -3724,7 +3727,6 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.ops = &msm_geni_console_pops;
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
-		mutex_init(&msm_geni_console_port.ioctl_mutex);
 	}
 
 	ret = console_register(&msm_geni_console_driver);

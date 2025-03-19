@@ -171,6 +171,7 @@ static FORCE_INLINE void LZ4_writeLE16(void *memPtr, U16 value)
  * environments. This is needed when decompressing the Linux Kernel, for example.
  */
 #define LZ4_memcpy(dst, src, size) __builtin_memcpy(dst, src, size)
+#define LZ4_memmove(dst, src, size) __builtin_memmove(dst, src, size)
 
 static FORCE_INLINE void LZ4_copy8(void *dst, const void *src)
 {
@@ -291,7 +292,7 @@ static FORCE_INLINE unsigned read_variable_length(const BYTE **ip,
 typedef enum { noLimit = 0, limitedOutput = 1 } limitedOutput_directive;
 typedef enum { byPtr, byU32, byU16 } tableType_t;
 
-typedef enum { noDict = 0, withPrefix64k, usingExtDict } dict_directive;
+typedef enum { noDict = 0, withPrefix64k } dict_directive;
 typedef enum { noDictIssue = 0, dictSmall } dictIssue_directive;
 
 typedef enum { endOnOutputSize = 0, endOnInputSize = 1 } endCondition_directive;

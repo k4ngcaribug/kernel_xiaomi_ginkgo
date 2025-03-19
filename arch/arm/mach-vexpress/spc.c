@@ -403,7 +403,7 @@ static int ve_spc_populate_opps(uint32_t cluster)
 	uint32_t data = 0, off, ret, idx;
 	struct ve_spc_opp *opps;
 
-	opps = kzalloc(sizeof(*opps) * MAX_OPPS, GFP_KERNEL);
+	opps = kcalloc(MAX_OPPS, sizeof(*opps), GFP_KERNEL);
 	if (!opps)
 		return -ENOMEM;
 
@@ -584,7 +584,7 @@ static int __init ve_spc_clk_init(void)
 		}
 
 		cluster = topology_physical_package_id(cpu_dev->id);
-		if (init_opp_table[cluster])
+		if (cluster < 0 || init_opp_table[cluster])
 			continue;
 
 		if (ve_init_opp_table(cpu_dev))

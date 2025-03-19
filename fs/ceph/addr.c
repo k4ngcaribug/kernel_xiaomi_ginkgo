@@ -87,7 +87,6 @@ static int ceph_set_page_dirty(struct page *page)
 
 	/* dirty the head */
 	spin_lock(&ci->i_ceph_lock);
-	BUG_ON(ci->i_wr_ref == 0); // caller should hold Fw reference
 	if (__ceph_have_pending_cap_snap(ci)) {
 		struct ceph_cap_snap *capsnap =
 				list_last_entry(&ci->i_cap_snaps,
@@ -360,7 +359,7 @@ static int start_read(struct inode *inode, struct list_head *page_list, int max)
 
 	/* build page vector */
 	nr_pages = calc_pages_for(0, len);
-	pages = kmalloc(sizeof(*pages) * nr_pages, GFP_KERNEL);
+	pages = kmalloc_array(nr_pages, sizeof(*pages), GFP_KERNEL);
 	if (!pages) {
 		ret = -ENOMEM;
 		goto out_put;
@@ -950,8 +949,9 @@ get_more_pages:
 
 				BUG_ON(pages);
 				max_pages = calc_pages_for(0, (u64)len);
-				pages = kmalloc(max_pages * sizeof (*pages),
-						GFP_NOFS);
+				pages = kmalloc_array(max_pages,
+						      sizeof(*pages),
+						      GFP_NOFS);
 				if (!pages) {
 					pool = fsc->wb_pagevec_pool;
 					pages = mempool_alloc(pool, GFP_NOFS);
@@ -1097,8 +1097,8 @@ new_request:
 
 			/* allocate new pages array for next request */
 			data_pages = pages;
-			pages = kmalloc(locked_pages * sizeof (*pages),
-					GFP_NOFS);
+			pages = kmalloc_array(locked_pages, sizeof(*pages),
+					      GFP_NOFS);
 			if (!pages) {
 				pool = fsc->wb_pagevec_pool;
 				pages = mempool_alloc(pool, GFP_NOFS);

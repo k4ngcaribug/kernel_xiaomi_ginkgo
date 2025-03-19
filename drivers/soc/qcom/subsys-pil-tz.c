@@ -238,7 +238,7 @@ static int of_read_clocks(struct device *dev, struct clk ***clks_ref,
 		return -EINVAL;
 	}
 
-	clks = devm_kzalloc(dev, sizeof(struct clk *) * clk_count,
+	clks = devm_kcalloc(dev, clk_count, sizeof(struct clk *),
 				GFP_KERNEL);
 	if (!clks)
 		return -ENOMEM;
@@ -297,7 +297,7 @@ static int of_read_regs(struct device *dev, struct reg_info **regs_ref,
 		return -EINVAL;
 	}
 
-	regs = devm_kzalloc(dev, sizeof(struct reg_info) * reg_count,
+	regs = devm_kcalloc(dev, reg_count, sizeof(struct reg_info),
 				GFP_KERNEL);
 	if (!regs)
 		return -ENOMEM;
@@ -630,7 +630,7 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 		return -ENOMEM;
 	}
 
-	memcpy_toio((void __iomem *)mdata_buf, metadata, size);
+	memcpy(mdata_buf, metadata, size);
 	if (!is_scm_armv8()) {
 		request.proc = d->pas_id;
 		request.image_addr = mdata_phys;

@@ -3926,7 +3926,7 @@ static int ipa_pci_probe(
 	if (result && result != -EPROBE_DEFER)
 		pr_err("ipa: ipa3_pci_drv_probe failed\n");
 
-#ifdef CONFIG_IPA_EMULATION
+#ifdef CONFIG_IPA_UT
 	if (running_emulation)
 		ipa_ut_module_init();
 #endif
@@ -3935,7 +3935,7 @@ static int ipa_pci_probe(
 
 static void ipa_pci_remove(struct pci_dev *pci_dev)
 {
-#ifdef CONFIG_IPA_EMULATION
+#ifdef CONFIG_IPA_UT
 	if (running_emulation)
 		ipa_ut_module_exit();
 #endif

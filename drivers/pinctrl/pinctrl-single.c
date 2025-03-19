@@ -317,6 +317,8 @@ static int pcs_get_function(struct pinctrl_dev *pctldev, unsigned pin,
 		return -ENOTSUPP;
 	fselector = setting->func;
 	function = pinmux_generic_get_function(pctldev, fselector);
+	if (!function)
+		return -EINVAL;
 	*func = function->data;
 	if (!(*func)) {
 		dev_err(pcs->dev, "%s could not find function%i\n",
@@ -339,6 +341,8 @@ static int pcs_set_mux(struct pinctrl_dev *pctldev, unsigned fselector,
 	if (!pcs->fmask)
 		return 0;
 	function = pinmux_generic_get_function(pctldev, fselector);
+	if (!function)
+		return -EINVAL;
 	func = function->data;
 	if (!func)
 		return -EINVAL;
@@ -681,7 +685,7 @@ static int pcs_allocate_pin_table(struct pcs_device *pcs)
 
 	mux_bytes = pcs->width / BITS_PER_BYTE;
 
-	if (pcs->bits_per_mux) {
+	if (pcs->bits_per_mux && pcs->fmask) {
 		pcs->bits_per_pin = fls(pcs->fmask);
 		nr_pins = (pcs->size * BITS_PER_BYTE) / pcs->bits_per_pin;
 		num_pins_in_register = pcs->width / pcs->bits_per_pin;
@@ -690,8 +694,8 @@ static int pcs_allocate_pin_table(struct pcs_device *pcs)
 	}
 
 	dev_dbg(pcs->dev, "allocating %i pins\n", nr_pins);
-	pcs->pins.pa = devm_kzalloc(pcs->dev,
-				sizeof(*pcs->pins.pa) * nr_pins,
+	pcs->pins.pa = devm_kcalloc(pcs->dev,
+				nr_pins, sizeof(*pcs->pins.pa),
 				GFP_KERNEL);
 	if (!pcs->pins.pa)
 		return -ENOMEM;
@@ -902,15 +906,15 @@ static int pcs_parse_pinconf(struct pcs_device *pcs, struct device_node *np,
 	if (!nconfs)
 		return -ENOTSUPP;
 
-	func->conf = devm_kzalloc(pcs->dev,
-				  sizeof(struct pcs_conf_vals) * nconfs,
+	func->conf = devm_kcalloc(pcs->dev,
+				  nconfs, sizeof(struct pcs_conf_vals),
 				  GFP_KERNEL);
 	if (!func->conf)
 		return -ENOMEM;
 	func->nconfs = nconfs;
 	conf = &(func->conf[0]);
 	m++;
-	settings = devm_kzalloc(pcs->dev, sizeof(unsigned long) * nconfs,
+	settings = devm_kcalloc(pcs->dev, nconfs, sizeof(unsigned long),
 				GFP_KERNEL);
 	if (!settings)
 		return -ENOMEM;
@@ -966,11 +970,11 @@ static int pcs_parse_one_pinctrl_entry(struct pcs_device *pcs,
 		return -EINVAL;
 	}
 
-	vals = devm_kzalloc(pcs->dev, sizeof(*vals) * rows, GFP_KERNEL);
+	vals = devm_kcalloc(pcs->dev, rows, sizeof(*vals), GFP_KERNEL);
 	if (!vals)
 		return -ENOMEM;
 
-	pins = devm_kzalloc(pcs->dev, sizeof(*pins) * rows, GFP_KERNEL);
+	pins = devm_kcalloc(pcs->dev, rows, sizeof(*pins), GFP_KERNEL);
 	if (!pins)
 		goto free_vals;
 
@@ -1070,13 +1074,15 @@ static int pcs_parse_bits_in_pinctrl_entry(struct pcs_device *pcs,
 
 	npins_in_row = pcs->width / pcs->bits_per_pin;
 
-	vals = devm_kzalloc(pcs->dev, sizeof(*vals) * rows * npins_in_row,
-			GFP_KERNEL);
+	vals = devm_kzalloc(pcs->dev,
+			    array3_size(rows, npins_in_row, sizeof(*vals)),
+			    GFP_KERNEL);
 	if (!vals)
 		return -ENOMEM;
 
-	pins = devm_kzalloc(pcs->dev, sizeof(*pins) * rows * npins_in_row,
-			GFP_KERNEL);
+	pins = devm_kzalloc(pcs->dev,
+			    array3_size(rows, npins_in_row, sizeof(*pins)),
+			    GFP_KERNEL);
 	if (!pins)
 		goto free_vals;
 
@@ -1199,7 +1205,7 @@ static int pcs_dt_node_to_map(struct pinctrl_dev *pctldev,
 	pcs = pinctrl_dev_get_drvdata(pctldev);
 
 	/* create 2 maps. One is for pinmux, and the other is for pinconf. */
-	*map = devm_kzalloc(pcs->dev, sizeof(**map) * 2, GFP_KERNEL);
+	*map = devm_kcalloc(pcs->dev, 2, sizeof(**map), GFP_KERNEL);
 	if (!*map)
 		return -ENOMEM;
 
@@ -1266,7 +1272,6 @@ static void pcs_irq_free(struct pcs_device *pcs)
 static void pcs_free_resources(struct pcs_device *pcs)
 {
 	pcs_irq_free(pcs);
-	pinctrl_unregister(pcs->pctl);
 
 #if IS_BUILTIN(CONFIG_PINCTRL_SINGLE)
 	if (pcs->missing_nr_pinctrl_cells)
@@ -1747,7 +1752,7 @@ static int pcs_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto free;
 
-	ret = pinctrl_register_and_init(&pcs->desc, pcs->dev, pcs, &pcs->pctl);
+	ret = devm_pinctrl_register_and_init(pcs->dev, &pcs->desc, pcs, &pcs->pctl);
 	if (ret) {
 		dev_err(pcs->dev, "could not register single pinctrl driver\n");
 		goto free;
@@ -1781,8 +1786,11 @@ static int pcs_probe(struct platform_device *pdev)
 	dev_info(pcs->dev, "%i pins at pa %p size %u\n",
 		 pcs->desc.npins, pcs->base, pcs->size);
 
-	return pinctrl_enable(pcs->pctl);
+	ret = pinctrl_enable(pcs->pctl);
+	if (ret)
+		goto free;
 
+	return 0;
 free:
 	pcs_free_resources(pcs);
 

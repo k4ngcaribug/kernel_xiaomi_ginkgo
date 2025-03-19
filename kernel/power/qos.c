@@ -288,10 +288,10 @@ static inline int pm_qos_set_value_for_cpus(struct pm_qos_request *new_req,
 
 	if (new_cpus) {
 		/* cpus_affine changed, so the old CPUs need to be refreshed */
-		new_req_cpus = atomic_read(&new_req->cpus_affine) | new_cpus;
-		atomic_set(&new_req->cpus_affine, new_cpus);
+		new_req_cpus = new_req->cpus_affine | new_cpus;
+		new_req->cpus_affine = new_cpus;
 	} else {
-		new_req_cpus = atomic_read(&new_req->cpus_affine);
+		new_req_cpus = new_req->cpus_affine;
 	}
 
 	if (new_action != PM_QOS_REMOVE_REQ) {
@@ -311,7 +311,7 @@ static inline int pm_qos_set_value_for_cpus(struct pm_qos_request *new_req,
 	plist_for_each_entry(req, &c->list, node) {
 		unsigned long affected_cpus;
 
-		affected_cpus = atomic_read(&req->cpus_affine) & new_req_cpus;
+		affected_cpus = req->cpus_affine & new_req_cpus;
 		if (!affected_cpus)
 			continue;
 
@@ -536,7 +536,7 @@ int pm_qos_request_for_cpumask(int pm_qos_class, struct cpumask *mask)
 }
 EXPORT_SYMBOL(pm_qos_request_for_cpumask);
 
-static __always_inline void __pm_qos_update_request(struct pm_qos_request *req,
+static void __pm_qos_update_request(struct pm_qos_request *req,
 			   s32 new_value)
 {
 	trace_pm_qos_update_request(req->pm_qos_class, new_value);
@@ -545,6 +545,21 @@ static __always_inline void __pm_qos_update_request(struct pm_qos_request *req,
 		pm_qos_update_target(
 			pm_qos_array[req->pm_qos_class]->constraints,
 			&req->node, PM_QOS_UPDATE_REQ, new_value);
+}
+
+/**
+ * pm_qos_work_fn - the timeout handler of pm_qos_update_request_timeout
+ * @work: work struct for the delayed work (timeout)
+ *
+ * This cancels the timeout request by falling back to the default at timeout.
+ */
+static void pm_qos_work_fn(struct work_struct *work)
+{
+	struct pm_qos_request *req = container_of(to_delayed_work(work),
+						  struct pm_qos_request,
+						  work);
+
+	__pm_qos_update_request(req, PM_QOS_DEFAULT_VALUE);
 }
 
 #ifdef CONFIG_SMP
@@ -600,7 +615,8 @@ void pm_qos_add_request(struct pm_qos_request *req,
 
 	switch (req->type) {
 	case PM_QOS_REQ_AFFINE_CORES:
-		if (!atomic_cmpxchg_relaxed(&req->cpus_affine, 0, CPUMASK_ALL)) {
+		if (!req->cpus_affine) {
+			req->cpus_affine = CPUMASK_ALL;
 			req->type = PM_QOS_REQ_ALL_CORES;
 			WARN(1, "Affine cores not set for request with affinity flag\n");
 		}
@@ -617,14 +633,14 @@ void pm_qos_add_request(struct pm_qos_request *req,
 			mask = desc->irq_data.common->affinity;
 
 			/* Get the current affinity */
-			atomic_set(&req->cpus_affine, *cpumask_bits(mask));
+			req->cpus_affine = *cpumask_bits(mask);
 			req->irq_notify.irq = req->irq;
 			req->irq_notify.notify = pm_qos_irq_notify;
 			req->irq_notify.release = pm_qos_irq_release;
 
 		} else {
 			req->type = PM_QOS_REQ_ALL_CORES;
-			atomic_set(&req->cpus_affine, CPUMASK_ALL);
+			req->cpus_affine = CPUMASK_ALL;
 			WARN(1, "IRQ-%d not set for request with affinity flag\n",
 					req->irq);
 		}
@@ -634,11 +650,12 @@ void pm_qos_add_request(struct pm_qos_request *req,
 		WARN(1, "Unknown request type %d\n", req->type);
 		/* fall through */
 	case PM_QOS_REQ_ALL_CORES:
-		atomic_set(&req->cpus_affine, CPUMASK_ALL);
+		req->cpus_affine = CPUMASK_ALL;
 		break;
 	}
 
 	req->pm_qos_class = pm_qos_class;
+	INIT_DELAYED_WORK(&req->work, pm_qos_work_fn);
 	trace_pm_qos_add_request(pm_qos_class, value);
 	pm_qos_update_target(pm_qos_array[pm_qos_class]->constraints,
 			     &req->node, PM_QOS_ADD_REQ, value);
@@ -653,7 +670,7 @@ void pm_qos_add_request(struct pm_qos_request *req,
 		if (ret) {
 			WARN(1, "IRQ affinity notify set failed\n");
 			req->type = PM_QOS_REQ_ALL_CORES;
-			atomic_set(&req->cpus_affine, CPUMASK_ALL);
+			req->cpus_affine = CPUMASK_ALL;
 			pm_qos_update_target(
 				pm_qos_array[pm_qos_class]->constraints,
 				&req->node, PM_QOS_UPDATE_REQ, value);
@@ -673,7 +690,7 @@ EXPORT_SYMBOL_GPL(pm_qos_add_request);
  *
  * Attempts are made to make this code callable on hot code paths.
  */
-void __always_inline pm_qos_update_request(struct pm_qos_request *req,
+void pm_qos_update_request(struct pm_qos_request *req,
 			   s32 new_value)
 {
 	if (!req) /*guard against callers passing in null */
@@ -684,9 +701,39 @@ void __always_inline pm_qos_update_request(struct pm_qos_request *req,
 		return;
 	}
 
+	cancel_delayed_work_sync(&req->work);
 	__pm_qos_update_request(req, new_value);
 }
 EXPORT_SYMBOL_GPL(pm_qos_update_request);
+
+/**
+ * pm_qos_update_request_timeout - modifies an existing qos request temporarily.
+ * @req : handle to list element holding a pm_qos request to use
+ * @new_value: defines the temporal qos request
+ * @timeout_us: the effective duration of this qos request in usecs.
+ *
+ * After timeout_us, this qos request is cancelled automatically.
+ */
+void pm_qos_update_request_timeout(struct pm_qos_request *req, s32 new_value,
+				   unsigned long timeout_us)
+{
+	if (!req)
+		return;
+	if (WARN(!pm_qos_request_active(req),
+		 "%s called for unknown object.", __func__))
+		return;
+
+	cancel_delayed_work_sync(&req->work);
+
+	trace_pm_qos_update_request_timeout(req->pm_qos_class,
+					    new_value, timeout_us);
+	if (new_value != req->node.prio)
+		pm_qos_update_target(
+			pm_qos_array[req->pm_qos_class]->constraints,
+			&req->node, PM_QOS_UPDATE_REQ, new_value);
+
+	schedule_delayed_work(&req->work, usecs_to_jiffies(timeout_us));
+}
 
 /**
  * pm_qos_remove_request - modifies an existing qos request
@@ -706,6 +753,8 @@ void pm_qos_remove_request(struct pm_qos_request *req)
 		WARN(1, "%s called for unknown object\n", __func__);
 		return;
 	}
+
+	cancel_delayed_work_sync(&req->work);
 
 #ifdef CONFIG_SMP
 	if (req->type == PM_QOS_REQ_AFFINE_IRQ) {

@@ -1933,33 +1933,37 @@ static inline bool may_mandlock(void)
 static int can_umount(const struct path *path, int flags)
 {
 	struct mount *mnt = real_mount(path->mnt);
+
 	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
-	return -EINVAL;
+		return -EINVAL;
 	if (!may_mount())
-	return -EPERM;
+		return -EPERM;
 	if (path->dentry != path->mnt->mnt_root)
-	return -EINVAL;
+		return -EINVAL;
 	if (!check_mnt(mnt))
-	return -EINVAL;
+		return -EINVAL;
 	if (mnt->mnt.mnt_flags & MNT_LOCKED) /* Check optimistically */
-	return -EINVAL;
+		return -EINVAL;
 	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
-	return -EPERM;
+		return -EPERM;
 	return 0;
 }
+
+// caller is responsible for flags being sane
 int path_umount(struct path *path, int flags)
 {
 	struct mount *mnt = real_mount(path->mnt);
 	int ret;
+
 	ret = can_umount(path, flags);
 	if (!ret)
 		ret = do_umount(mnt, flags);
+
 	/* we mustn't call path_put() as that would clear mnt_expiry_mark */
 	dput(path->dentry);
 	mntput_no_expire(mnt);
 	return ret;
 }
-
 /*
  * Now umount can handle mount points as well as block devices.
  * This is important for filesystems which use unnamed block devices.
@@ -2871,9 +2875,12 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 		return -ENODEV;
 
 	mnt = vfs_kern_mount(type, sb_flags, name, data);
-	if (!IS_ERR(mnt) && (type->fs_flags & FS_HAS_SUBTYPE) &&
-	    !mnt->mnt_sb->s_subtype)
-		mnt = fs_set_subtype(mnt, fstype);
+	if (!IS_ERR(mnt) && (type->fs_flags & FS_HAS_SUBTYPE)) {
+		down_write(&mnt->mnt_sb->s_umount);
+		if (!mnt->mnt_sb->s_subtype)
+			mnt = fs_set_subtype(mnt, fstype);
+		up_write(&mnt->mnt_sb->s_umount);
+	}
 
 	put_filesystem(type);
 	if (IS_ERR(mnt))

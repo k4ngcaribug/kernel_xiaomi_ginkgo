@@ -1896,7 +1896,10 @@ static int efx_ef10_try_update_nic_stats_vf(struct efx_nic *efx)
 
 	efx_update_sw_stats(efx, stats);
 out:
+	/* releasing a DMA coherent buffer with BH disabled can panic */
+	spin_unlock_bh(&efx->stats_lock);
 	efx_nic_free_buffer(efx, &stats_buf);
+	spin_lock_bh(&efx->stats_lock);
 	return rc;
 }
 
@@ -4820,7 +4823,7 @@ static int efx_ef10_filter_table_probe(struct efx_nic *efx)
 		net_dev->hw_features &= ~NETIF_F_HW_VLAN_CTAG_FILTER;
 	}
 
-	table->entry = vzalloc(HUNT_FILTER_TBL_ROWS * sizeof(*table->entry));
+	table->entry = vzalloc(array_size(HUNT_FILTER_TBL_ROWS, sizeof(*table->entry)));
 	if (!table->entry) {
 		rc = -ENOMEM;
 		goto fail;
@@ -5954,6 +5957,11 @@ static int efx_ef10_mtd_probe(struct efx_nic *efx)
 		if (rc)
 			goto fail;
 		n_parts++;
+	}
+
+	if (!n_parts) {
+		kfree(parts);
+		return 0;
 	}
 
 	rc = efx_mtd_add(efx, &parts[0].common, n_parts, sizeof(*parts));

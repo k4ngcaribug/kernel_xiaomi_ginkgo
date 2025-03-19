@@ -4295,12 +4295,12 @@ static int dib8000_i2c_enumeration(struct i2c_adapter *host, int no_of_demods,
 	u8 new_addr = 0;
 	struct i2c_device client = {.adap = host };
 
-	client.i2c_write_buffer = kzalloc(4 * sizeof(u8), GFP_KERNEL);
+	client.i2c_write_buffer = kzalloc(4, GFP_KERNEL);
 	if (!client.i2c_write_buffer) {
 		dprintk("%s: not enough memory\n", __func__);
 		return -ENOMEM;
 	}
-	client.i2c_read_buffer = kzalloc(4 * sizeof(u8), GFP_KERNEL);
+	client.i2c_read_buffer = kzalloc(4, GFP_KERNEL);
 	if (!client.i2c_read_buffer) {
 		dprintk("%s: not enough memory\n", __func__);
 		ret = -ENOMEM;
@@ -4476,8 +4476,10 @@ static struct dvb_frontend *dib8000_init(struct i2c_adapter *i2c_adap, u8 i2c_ad
 
 	state->timf_default = cfg->pll->timf;
 
-	if (dib8000_identify(&state->i2c) == 0)
+	if (dib8000_identify(&state->i2c) == 0) {
+		kfree(fe);
 		goto error;
+	}
 
 	dibx000_init_i2c_master(&state->i2c_master, DIB8000, state->i2c.adap, state->i2c.addr);
 
@@ -4528,7 +4530,7 @@ void *dib8000_attach(struct dib8000_ops *ops)
 
 	return ops;
 }
-EXPORT_SYMBOL(dib8000_attach);
+EXPORT_SYMBOL_GPL(dib8000_attach);
 
 MODULE_AUTHOR("Olivier Grenie <Olivier.Grenie@parrot.com, Patrick Boettcher <patrick.boettcher@posteo.de>");
 MODULE_DESCRIPTION("Driver for the DiBcom 8000 ISDB-T demodulator");

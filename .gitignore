@@ -103,7 +103,6 @@ GTAGS
 # id-utils files
 ID
 
-*.orig
 *~
 \#*#
 
@@ -125,7 +124,13 @@ all.config
 # fetched Android config fragments
 kernel/configs/android-*.cfg
 
-# build
+#
+#Ignoring Android.bp link file
+#
+Android.bp
+
+# Ignore local folders
+AnyKernel3/
 out/
 *.zip
 

@@ -1671,7 +1671,7 @@ static int kvm_s390_set_cmma_bits(struct kvm *kvm,
 	if (args->count == 0)
 		return 0;
 
-	bits = vmalloc(sizeof(*bits) * args->count);
+	bits = vmalloc(array_size(sizeof(*bits), args->count));
 	if (!bits)
 		return -ENOMEM;
 
@@ -2788,8 +2788,6 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 
 int kvm_arch_vcpu_ioctl_set_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 {
-	if (test_fp_ctl(fpu->fpc))
-		return -EINVAL;
 	vcpu->run->s.regs.fpc = fpu->fpc;
 	if (MACHINE_HAS_VX)
 		convert_fp_to_vx((__vector128 *) vcpu->run->s.regs.vrs,

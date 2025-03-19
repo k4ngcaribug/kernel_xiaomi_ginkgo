@@ -41,6 +41,7 @@
 #include <linux/pm_qos.h>
 #include <linux/cpufreq.h>
 #include <linux/mdss_io_util.h>
+//#include <linux/wakelock.h>
 #include <linux/proc_fs.h>
 #include "gf_spi.h"
 #include <linux/unistd.h>
@@ -77,27 +78,47 @@ static int SPIDEV_MAJOR;
 
 static DECLARE_BITMAP(minors, N_SPI_MINORS);
 static LIST_HEAD(device_list);
-static DEFINE_MUTEX(device_list_lock);
-static struct wakeup_source fp_ws;
+static DEFINE_RT_MUTEX(device_list_lock);
+//static struct wake_lock fp_wakelock;
+static struct wakeup_source fp_ws;//for kernel 4.9
 static struct gf_dev gf;
 
 extern int fpsensor;
 static struct proc_dir_entry *proc_entry;
 
+#if 0
+static struct gf_key_map maps[] = {
+	{ EV_KEY, GF_KEY_INPUT_HOME },
+	{ EV_KEY, GF_KEY_INPUT_MENU },
+	{ EV_KEY, GF_KEY_INPUT_BACK },
+	{ EV_KEY, GF_KEY_INPUT_POWER },
+#if defined(SUPPORT_NAV_EVENT)
+	{ EV_KEY, GF_NAV_INPUT_UP },
+	{ EV_KEY, GF_NAV_INPUT_DOWN },
+	{ EV_KEY, GF_NAV_INPUT_RIGHT },
+	{ EV_KEY, GF_NAV_INPUT_LEFT },
+	{ EV_KEY, GF_KEY_INPUT_CAMERA },
+	{ EV_KEY, GF_NAV_INPUT_CLICK },
+	{ EV_KEY, GF_NAV_INPUT_DOUBLE_CLICK },
+	{ EV_KEY, GF_NAV_INPUT_LONG_PRESS },
+	{ EV_KEY, GF_NAV_INPUT_HEAVY },
+#endif
+};
+#endif
 struct gf_key_map maps[] = {
-	{ EV_KEY, KEY_HOME },
-	{ EV_KEY, KEY_MENU },
-	{ EV_KEY, KEY_BACK },
-	{ EV_KEY, KEY_POWER },
-	{ EV_KEY, KEY_UP },
-	{ EV_KEY, KEY_DOWN },
-	{ EV_KEY, KEY_RIGHT },
-	{ EV_KEY, KEY_LEFT },
-	{ EV_KEY, KEY_CAMERA },
-	{ EV_KEY, KEY_F9 },
-	{ EV_KEY, KEY_F19 },
-	{ EV_KEY, KEY_ENTER},
-	{ EV_KEY, KEY_KPENTER },
+        { EV_KEY, KEY_HOME },
+        { EV_KEY, KEY_MENU },
+        { EV_KEY, KEY_BACK },
+        { EV_KEY, KEY_POWER },
+        { EV_KEY, KEY_UP },
+        { EV_KEY, KEY_DOWN },
+        { EV_KEY, KEY_RIGHT },
+        { EV_KEY, KEY_LEFT },
+        { EV_KEY, KEY_CAMERA },
+        { EV_KEY, KEY_F9 },
+        { EV_KEY, KEY_F19 },
+        { EV_KEY, KEY_ENTER},
+        { EV_KEY, KEY_KPENTER },
 
 };
 
@@ -329,10 +350,10 @@ static irqreturn_t gf_irq(int irq, void *handle)
 #if defined(GF_NETLINK_ENABLE)
 	char msg = GF_NET_EVENT_IRQ;
 	struct gf_dev *gf_dev = &gf;
-	__pm_wakeup_event(&fp_ws, WAKELOCK_HOLD_TIME);
+	//wake_lock_timeout(&fp_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_TIME));
+	__pm_wakeup_event(&fp_ws, WAKELOCK_HOLD_TIME);//for kernel 4.9
 	sendnlmsg(&msg);
 	if (gf_dev->device_available == 1) {
-		printk("%s:shedule_work\n",__func__);
 		gf_dev->wait_finger_down = false;
 		schedule_work(&gf_dev->work);
 	}
@@ -352,11 +373,11 @@ static int irq_setup(struct gf_dev *gf_dev)
 
 	gf_dev->irq = gf_irq_num(gf_dev);
 	status = request_threaded_irq(gf_dev->irq, NULL, gf_irq,
-			IRQF_TRIGGER_RISING | IRQF_ONESHOT | IRQF_PERF_AFFINE,
+			IRQF_TRIGGER_RISING | IRQF_ONESHOT,
 			"gf", gf_dev);
 
 	if (status) {
-		pr_err("failed to request IRQ:%d\n", gf_dev->irq);
+		pr_debug("failed to request IRQ:%d\n", gf_dev->irq);
 		return status;
 	}
 	enable_irq_wake(gf_dev->irq);
@@ -387,7 +408,7 @@ static void gf_kernel_key_input(struct gf_dev *gf_dev, struct gf_key *gf_key)
 		/* add special key define */
 		key_input = gf_key->key;
 	}
-	pr_info("%s: received key event[%d], key=%d, value=%d\n",
+	pr_debug("%s: received key event[%d], key=%d, value=%d\n",
 			__func__, key_input, gf_key->key, gf_key->value);
 
 	if ((GF_KEY_POWER == gf_key->key || GF_KEY_CAMERA == gf_key->key)
@@ -515,6 +536,8 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case GF_IOC_REMOVE:
 		pr_debug("%s GF_IOC_REMOVE\n", __func__);
+		//irq_cleanup(gf_dev);
+		//gf_cleanup(gf_dev);
 		break;
 
 	case GF_IOC_CHIP_INFO:
@@ -559,7 +582,7 @@ static int gf_open(struct inode *inode, struct file *filp)
 	struct gf_dev *gf_dev = &gf;
 	int status = -ENXIO;
 
-	mutex_lock(&device_list_lock);
+	rt_mutex_lock(&device_list_lock);
 
 	list_for_each_entry(gf_dev, &device_list, device_entry) {
 		if (gf_dev->devt == inode->i_rdev) {
@@ -585,18 +608,19 @@ static int gf_open(struct inode *inode, struct file *filp)
 				if (status)
 					goto err_irq;
 			}
+			//gf_hw_reset(gf_dev, 3);//reserve for timing sequence
 			gf_disable_irq(gf_dev);
 		}
 	} else {
 		pr_info("No device for minor %d\n", iminor(inode));
 	}
-	mutex_unlock(&device_list_lock);
+	rt_mutex_unlock(&device_list_lock);
 
 	return status;
 err_irq:
 	gf_cleanup(gf_dev);
 err_parse_dt:
-	mutex_unlock(&device_list_lock);
+	rt_mutex_unlock(&device_list_lock);
 	return status;
 }
 
@@ -630,7 +654,7 @@ static int gf_release(struct inode *inode, struct file *filp)
 	struct gf_dev *gf_dev = &gf;
 	int status = 0;
 
-	mutex_lock(&device_list_lock);
+	rt_mutex_lock(&device_list_lock);
 	gf_dev = filp->private_data;
 	filp->private_data = NULL;
 
@@ -639,13 +663,14 @@ static int gf_release(struct inode *inode, struct file *filp)
 	if (!gf_dev->users) {
 
 		pr_info("disble_irq. irq = %d\n", gf_dev->irq);
+		//gf_disable_irq(gf_dev);
 		irq_cleanup(gf_dev);
 		gf_cleanup(gf_dev);
 		/*power off the sensor*/
 		gf_dev->device_available = 0;
 		gf_power_off(gf_dev);
 	}
-	mutex_unlock(&device_list_lock);
+	rt_mutex_unlock(&device_list_lock);
 	return status;
 }
 
@@ -673,6 +698,18 @@ static const struct file_operations proc_file_ops = {
 	.release = single_release,
 };
 
+static void set_fingerprintd_nice(int nice)
+{
+	struct task_struct *p;
+
+	read_lock(&tasklist_lock);
+	for_each_process(p) {
+		if (strstr(p->comm, "erprint"))
+			set_user_nice(p, nice);
+	}
+	read_unlock(&tasklist_lock);
+}
+
 static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
@@ -689,6 +726,7 @@ static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 	if (evdata && evdata->data && val == MSM_DRM_EVENT_BLANK && gf_dev) {
 		blank = evdata->data;
 		if (gf_dev->device_available == 1 && *blank == MSM_DRM_BLANK_UNBLANK) {
+				set_fingerprintd_nice(0);
 				gf_dev->fb_black = 0;
 #if defined(GF_NETLINK_ENABLE)
 				msg = GF_NET_EVENT_FB_UNBLACK;
@@ -702,6 +740,7 @@ static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 	}else if(evdata && evdata->data && val == MSM_DRM_EARLY_EVENT_BLANK && gf_dev){
 		blank = evdata->data;
 			if (gf_dev->device_available == 1 && *blank == MSM_DRM_BLANK_POWERDOWN) {
+				set_fingerprintd_nice(MIN_NICE);
 				gf_dev->fb_black = 1;
 				gf_dev->wait_finger_down = true;
 #if defined(GF_NETLINK_ENABLE)
@@ -751,7 +790,7 @@ static int gf_probe(struct platform_device *pdev)
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
 	 */
-	mutex_lock(&device_list_lock);
+	rt_mutex_lock(&device_list_lock);
 	minor = find_first_zero_bit(minors, N_SPI_MINORS);
 	if (minor < N_SPI_MINORS) {
 		struct device *dev;
@@ -763,7 +802,7 @@ static int gf_probe(struct platform_device *pdev)
 	} else {
 		dev_dbg(&gf_dev->spi->dev, "no minor number available!\n");
 		status = -ENODEV;
-		mutex_unlock(&device_list_lock);
+		rt_mutex_unlock(&device_list_lock);
 		goto error_hw;
 	}
 
@@ -775,7 +814,7 @@ static int gf_probe(struct platform_device *pdev)
 		gf_dev->devt = 0;
 		goto error_hw;
 	}
-	mutex_unlock(&device_list_lock);
+	rt_mutex_unlock(&device_list_lock);
 
   
 	gf_dev->input = input_allocate_device();
@@ -810,7 +849,8 @@ static int gf_probe(struct platform_device *pdev)
 	gf_dev->notifier = goodix_noti_block;
 	msm_drm_register_client(&gf_dev->notifier);
 
-	wakeup_source_init(&fp_ws, "fp_ws");
+	//wake_lock_init(&fp_wakelock, WAKE_LOCK_SUSPEND, "fp_wakelock");
+	wakeup_source_init(&fp_ws, "fp_ws");//for kernel 4.9
 
 	proc_entry = proc_create(PROC_NAME, 0644, NULL, &proc_file_ops);
 	if (NULL == proc_entry) {
@@ -836,11 +876,11 @@ error_input:
 error_dev:
 	if (gf_dev->devt != 0) {
 		pr_info("Err: status = %d\n", status);
-		mutex_lock(&device_list_lock);
+		rt_mutex_lock(&device_list_lock);
 		list_del(&gf_dev->device_entry);
 		device_destroy(gf_class, gf_dev->devt);
 		clear_bit(MINOR(gf_dev->devt), minors);
-		mutex_unlock(&device_list_lock);
+		rt_mutex_unlock(&device_list_lock);
 	}
 error_hw:
 	gf_dev->device_available = 0;
@@ -856,19 +896,20 @@ static int gf_remove(struct platform_device *pdev)
 {
 	struct gf_dev *gf_dev = &gf;
 
-	wakeup_source_trash(&fp_ws);
+	//wake_lock_destroy(&fp_wakelock);
+	wakeup_source_trash(&fp_ws);//for kernel 4.9
 	msm_drm_unregister_client(&gf_dev->notifier);
 	if (gf_dev->input)
 		input_unregister_device(gf_dev->input);
 	input_free_device(gf_dev->input);
 
 	/* prevent new opens */
-	mutex_lock(&device_list_lock);
+	rt_mutex_lock(&device_list_lock);
 	list_del(&gf_dev->device_entry);
 	device_destroy(gf_class, gf_dev->devt);
 	clear_bit(MINOR(gf_dev->devt), minors);
 	remove_proc_entry(PROC_NAME,NULL);
-	mutex_unlock(&device_list_lock);
+	rt_mutex_unlock(&device_list_lock);
 
 	return 0;
 }

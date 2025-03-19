@@ -595,13 +595,11 @@ struct devfreq *devfreq_add_device(struct device *dev,
 	}
 
 	devfreq->trans_table =	devm_kzalloc(&devfreq->dev,
-						sizeof(unsigned int) *
-						devfreq->profile->max_state *
-						devfreq->profile->max_state,
+						array3_size(sizeof(unsigned int), devfreq->profile->max_state, devfreq->profile->max_state),
 						GFP_KERNEL);
-	devfreq->time_in_state = devm_kzalloc(&devfreq->dev,
-						sizeof(unsigned long) *
+	devfreq->time_in_state = devm_kcalloc(&devfreq->dev,
 						devfreq->profile->max_state,
+						sizeof(unsigned long),
 						GFP_KERNEL);
 	devfreq->last_stat_updated = jiffies;
 
@@ -1311,9 +1309,7 @@ static int __init devfreq_init(void)
 		return PTR_ERR(devfreq_class);
 	}
 
-	devfreq_wq = alloc_workqueue("devfreq_wq",
-			    WQ_HIGHPRI | WQ_UNBOUND | WQ_FREEZABLE |
-			    WQ_MEM_RECLAIM, 0);
+	devfreq_wq = create_freezable_workqueue("devfreq_wq");
 	if (!devfreq_wq) {
 		class_destroy(devfreq_class);
 		pr_err("%s: couldn't create workqueue\n", __FILE__);

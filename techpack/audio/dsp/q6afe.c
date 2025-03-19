@@ -399,16 +399,16 @@ static int32_t sp_make_afe_callback(uint32_t opcode, uint32_t *payload,
 				struct afe_sp_rx_tmax_xmax_logging_param);
 		data_dest = (u32 *) &this_afe.xt_logging_resp;
 #ifdef CONFIG_SND_SOC_MAX98937
-    case AFE_PARAM_ID_DSM_CFG:
-    case AFE_PARAM_ID_DSM_INFO:
-        expected_size += sizeof(struct afe_dsm_param_array);
-        data_dest     = (u32*) this_afe.dsm_payload;
-	break;
-    case AFE_PARAM_ID_CALIB:
-	expected_size = 76;
-	data_dest     = (u32*) this_afe.dsm_payload;
-        break;
+	case AFE_PARAM_ID_DSM_CFG:
+	case AFE_PARAM_ID_DSM_INFO:
+		expected_size += sizeof(struct afe_dsm_param_array);
+		data_dest     = (u32*) this_afe.dsm_payload;
+		break;
+	case AFE_PARAM_ID_CALIB:
+		expected_size = 76;
+		data_dest     = (u32*) this_afe.dsm_payload;
 #endif
+		break;
 	default:
 		pr_err("%s: Unrecognized param ID %d\n", __func__,
 		       param_hdr.param_id);
@@ -1712,13 +1712,13 @@ int afe_dsm_ramp_dn_cfg(uint8_t *payload, uint32_t delay_in_ms)
 	int ret;
  	uint32_t *params = (uint32_t *)payload;
 
-	*(params)		= 0;
-	*(params + 1)	= 3;                //three command will be sent
-	*(params + 2)	= 0x03000063;       // fade out time
-	*(params + 3)	= 5;                // 5ms
-	*(params + 4)	= 0x03000064;       // mute time
-	*(params + 5)	= 500;              // 5s mute time will make sure silence output till PA software shutdown.
-	*(params + 6)	= 0x03000066;       // start fade
+	*(params)	= 0;
+	*(params + 1)	= 3;                /* three command will be sent */
+	*(params + 2)	= 0x03000063;       /* fade out time */
+	*(params + 3)	= 5;                /* 5ms */
+	*(params + 4)	= 0x03000064;       /* mute time */
+	*(params + 5)	= 500;              /* 5s mute time will make sure silence output till PA software shutdown. */
+	*(params + 6)	= 0x03000066;       /* start fade */
 	*(params + 7)	= 1;
 
 	ret = afe_dsm_rx_set_params(payload, sizeof(uint32_t)*8);
@@ -1739,13 +1739,13 @@ EXPORT_SYMBOL(afe_dsm_ramp_dn_cfg);
 int afe_dsm_pre_calib(uint8_t* payload)
 {
  	uint32_t *params = (uint32_t *)payload;
- 	*(params)		= 0;
-	*(params + 1)	= 1;               //count
-	*(params + 2)	= 0x03000001;     // enable flag
-	*(params + 3)	= 4;              // mode 0: disable, 1: enable, 2: bypass and pilot tone, 4: pilot tone only
+ 	*(params)	= 0;
+	*(params + 1)	= 1;                /* count */
+	*(params + 2)	= 0x03000001;       /* enable flag */
+	*(params + 3)	= 4;                /* mode 0: disable, 1: enable, 2: bypass and pilot tone, 4: pilot tone only */
 
 	afe_dsm_rx_set_params(payload, 4*sizeof(uint32_t));
-	usleep_range(1000*1000, 1000*1000 + 10);              //make the stable iv data
+	usleep_range(1000*1000, 1000 * 1000 + 10);   /* make the stable iv data */
 	return 0;
 }
 EXPORT_SYMBOL(afe_dsm_pre_calib);
@@ -1753,11 +1753,11 @@ EXPORT_SYMBOL(afe_dsm_pre_calib);
 int afe_dsm_post_calib(uint8_t* payload)
 {
  	uint32_t *params = (uint32_t *)payload;
- 	*(params)		= 0;
-	*(params + 1)	= 1;               //count
-	*(params + 2)	= 0x03000001;     // enable flag
-	*(params + 3)	= 1;              // mode 0: disable, 1: enable, 2: bypass and pilot tone, 4: pilot tone only
-    return afe_dsm_rx_set_params(payload, 4*sizeof(uint32_t));
+ 	*(params)	= 0;
+	*(params + 1)	= 1;                /* count */
+	*(params + 2)	= 0x03000001;       /* enable flag */
+	*(params + 3)	= 1;                /* mode 0: disable, 1: enable, 2: bypass and pilot tone, 4: pilot tone only */
+    return afe_dsm_rx_set_params(payload, 4 *sizeof(uint32_t));
 }
 EXPORT_SYMBOL(afe_dsm_post_calib);
 
@@ -7139,8 +7139,7 @@ int afe_close(int port_id)
 		    (port_id == RT_PROXY_DAI_001_TX))
 			proxy_afe_instance[port_id & 0x1] = 0;
 		afe_close_done[port_id & 0x1] = true;
-		ret = -EINVAL;
-		goto fail_cmd;
+		return -EINVAL;
 	}
 	pr_debug("%s: port_id = 0x%x\n", __func__, port_id);
 	if ((port_id == RT_PROXY_DAI_001_RX) ||
@@ -7557,6 +7556,7 @@ static int afe_get_sp_th_vi_v_vali_data(
 
 	mutex_lock(&this_afe.afe_cmd_lock);
 	memset(&param_hdr, 0, sizeof(param_hdr));
+	memset(th_vi_v_vali, 0, sizeof(*th_vi_v_vali));
 
 	param_hdr.module_id = AFE_MODULE_SPEAKER_PROTECTION_V2_TH_VI;
 	param_hdr.instance_id = INSTANCE_ID_0;

@@ -71,7 +71,7 @@ static long cam_sensor_init_subdev_do_ioctl(struct v4l2_subdev *sd,
 		rc = cam_sensor_subdev_ioctl(sd, cmd, &cmd_data);
 		if (rc < 0)
 			CAM_ERR(CAM_SENSOR, "cam_sensor_subdev_ioctl failed");
-			break;
+		break;
 	default:
 		CAM_ERR(CAM_SENSOR, "Invalid compat ioctl cmd_type: %d", cmd);
 		rc = -EINVAL;
@@ -176,8 +176,9 @@ static int32_t cam_sensor_driver_i2c_probe(struct i2c_client *client,
 
 	s_ctrl->i2c_data.per_frame =
 		(struct i2c_settings_array *)
-		kzalloc(sizeof(struct i2c_settings_array) *
-		MAX_PER_FRAME_ARRAY, GFP_KERNEL);
+		kcalloc(MAX_PER_FRAME_ARRAY,
+			sizeof(struct i2c_settings_array),
+			GFP_KERNEL);
 	if (s_ctrl->i2c_data.per_frame == NULL) {
 		rc = -ENOMEM;
 		goto unreg_subdev;
@@ -312,8 +313,9 @@ static int32_t cam_sensor_driver_platform_probe(
 
 	s_ctrl->i2c_data.per_frame =
 		(struct i2c_settings_array *)
-		kzalloc(sizeof(struct i2c_settings_array) *
-		MAX_PER_FRAME_ARRAY, GFP_KERNEL);
+		kcalloc(MAX_PER_FRAME_ARRAY,
+			sizeof(struct i2c_settings_array),
+			GFP_KERNEL);
 	if (s_ctrl->i2c_data.per_frame == NULL) {
 		rc = -ENOMEM;
 		goto unreg_subdev;

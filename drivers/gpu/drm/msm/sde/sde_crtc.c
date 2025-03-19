@@ -859,7 +859,7 @@ static ssize_t measured_fps_show(struct device *device,
 	fps_int = (uint64_t) sde_crtc->fps_info.measured_fps;
 	fps_decimal = do_div(fps_int, 10);
 	return scnprintf(buf, PAGE_SIZE,
-	"fps: %d.%d duration:%d frame_count:%llu\n", fps_int, fps_decimal,
+	"fps: %llu.%llu duration:%d frame_count:%llu\n", fps_int, fps_decimal,
 			sde_crtc->fps_info.fps_periodic_duration, frame_count);
 }
 
@@ -2129,7 +2129,6 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 	_sde_crtc_set_src_split_order(crtc, pstates, cnt);
 
 	if (lm && lm->ops.setup_dim_layer) {
-		cstate = to_sde_crtc_state(crtc->state);
 		for (i = 0; i < cstate->num_dim_layers; i++)
 			_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
 					mixer, &cstate->dim_layer[i]);
@@ -2822,7 +2821,7 @@ void sde_crtc_prepare_commit(struct drm_crtc *crtc,
 	struct sde_crtc_state *cstate;
 	struct drm_connector *conn;
 	struct drm_encoder *encoder;
-	int i;
+	struct drm_connector_list_iter conn_iter;
 
 	if (!crtc || !crtc->state) {
 		SDE_ERROR("invalid crtc\n");
@@ -2836,16 +2835,24 @@ void sde_crtc_prepare_commit(struct drm_crtc *crtc,
 
 	SDE_ATRACE_BEGIN("sde_crtc_prepare_commit");
 
-	for (i = 0; i < cstate->num_connectors; i++) {
-		conn = cstate->connectors[i];
-		encoder = conn->state->best_encoder;
-		if (encoder)
-			sde_encoder_register_frame_event_callback(
-					encoder,
-					sde_crtc_frame_event_cb,
-					crtc);
-		sde_connector_prepare_fence(conn);
-	}
+	/* identify connectors attached to this crtc */
+	cstate->num_connectors = 0;
+
+	drm_connector_list_iter_begin(dev, &conn_iter);
+	drm_for_each_connector_iter(conn, &conn_iter)
+		if (conn->state && conn->state->crtc == crtc &&
+				cstate->num_connectors < MAX_CONNECTORS) {
+			encoder = conn->state->best_encoder;
+			if (encoder)
+				sde_encoder_register_frame_event_callback(
+						encoder,
+						sde_crtc_frame_event_cb,
+						crtc);
+
+			cstate->connectors[cstate->num_connectors++] = conn;
+			sde_connector_prepare_fence(conn);
+		}
+	drm_connector_list_iter_end(&conn_iter);
 
 	/* prepare main output fence */
 	sde_fence_prepare(sde_crtc->output_fence);
@@ -3703,9 +3710,9 @@ static void sde_crtc_atomic_begin(struct drm_crtc *crtc,
 		return;
 	}
 
-	if (!crtc->state->active) {
-		SDE_DEBUG("crtc%d -> active %d, skip atomic_begin\n",
-				crtc->base.id, crtc->state->active);
+	if (!crtc->state->enable) {
+		SDE_DEBUG("crtc%d -> enable %d, skip atomic_begin\n",
+				crtc->base.id, crtc->state->enable);
 		return;
 	}
 
@@ -5280,10 +5287,6 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 		goto end;
 	}
 
-	memset(pstates, 0, SDE_PSTATES_MAX * sizeof(struct plane_state));
-	memset(multirect_plane, 0,
-		   SDE_MULTIRECT_PLANE_MAX * sizeof(struct sde_multirect_plane_states));
-
 	mode = &state->adjusted_mode;
 	SDE_DEBUG("%s: check", sde_crtc->name);
 
@@ -5971,7 +5974,7 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 	int idx, ret;
 	uint64_t fence_fd;
 
-	if (unlikely(!crtc || !state || !property)) {
+	if (!crtc || !state || !property) {
 		SDE_ERROR("invalid argument(s)\n");
 		return -EINVAL;
 	}
@@ -5982,13 +5985,13 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 	SDE_ATRACE_BEGIN("sde_crtc_atomic_set_property");
 	/* check with cp property system first */
 	ret = sde_cp_crtc_set_property(crtc, property, val);
-	if (unlikely(ret != -ENOENT))
+	if (ret != -ENOENT)
 		goto exit;
 
 	/* if not handled by cp, check msm_property system */
 	ret = msm_property_atomic_set(&sde_crtc->property_info,
 			&cstate->property_state, property, val);
-	if (unlikely(ret))
+	if (ret)
 		goto exit;
 
 	idx = msm_property_index(&sde_crtc->property_info, property);
@@ -6026,18 +6029,18 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 		cstate->bw_split_vote = true;
 		break;
 	case CRTC_PROP_OUTPUT_FENCE:
-		if (unlikely(!val))
+		if (!val)
 			goto exit;
 
 		ret = _sde_crtc_get_output_fence(crtc, state, &fence_fd);
-		if (unlikely(ret)) {
+		if (ret) {
 			SDE_ERROR("fence create failed rc:%d\n", ret);
 			goto exit;
 		}
 
 		ret = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
 				sizeof(uint64_t));
-		if (unlikely(ret)) {
+		if (ret) {
 			SDE_ERROR("copy to user failed rc:%d\n", ret);
 			put_unused_fd(fence_fd);
 			ret = -EFAULT;
@@ -6973,7 +6976,6 @@ static int _sde_crtc_event_enable(struct sde_kms *kms,
 			if (!node)
 				return -ENOMEM;
 			INIT_LIST_HEAD(&node->list);
-			INIT_LIST_HEAD(&node->irq.list);
 			node->func = custom_events[i].func;
 			node->event = event;
 			node->state = IRQ_NOINIT;
@@ -6998,6 +7000,8 @@ static int _sde_crtc_event_enable(struct sde_kms *kms,
 			kfree(node);
 			return ret;
 		}
+
+		INIT_LIST_HEAD(&node->irq.list);
 
 		mutex_lock(&crtc->crtc_lock);
 		ret = node->func(crtc_drm, true, &node->irq);

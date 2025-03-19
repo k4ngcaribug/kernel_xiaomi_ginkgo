@@ -1202,9 +1202,6 @@ static enum hrtimer_restart inactive_task_timer(struct hrtimer *timer)
 
 	rq = task_rq_lock(p, &rf);
 
-	sched_clock_tick();
-	update_rq_clock(rq);
-
 	if (!dl_task(p) || p->state == TASK_DEAD) {
 		struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
 
@@ -1223,6 +1220,9 @@ static enum hrtimer_restart inactive_task_timer(struct hrtimer *timer)
 	}
 	if (dl_se->dl_non_contending == 0)
 		goto unlock;
+
+	sched_clock_tick();
+	update_rq_clock(rq);
 
 	sub_running_bw(dl_se->dl_bw, &rq->dl);
 	dl_se->dl_non_contending = 0;
@@ -1400,15 +1400,12 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 		pi_se = &pi_task->dl;
 	} else if (!dl_prio(p->normal_prio)) {
 		/*
-		 * Special case in which we have a !SCHED_DEADLINE task that is going
-		 * to be deboosted, but exceeds its runtime while doing so. No point in
-		 * replenishing it, as it's going to return back to its original
-		 * scheduling class after this. If it has been throttled, we need to
-		 * clear the flag, otherwise the task may wake up as throttled after
-		 * being boosted again with no means to replenish the runtime and clear
-		 * the throttle.
+		 * Special case in which we have a !SCHED_DEADLINE task
+		 * that is going to be deboosted, but exceeds its
+		 * runtime while doing so. No point in replenishing
+		 * it, as it's going to return back to its original
+		 * scheduling class after this.
 		 */
-		p->dl.dl_throttled = 0;
 		BUG_ON(!p->dl.dl_boosted || flags != ENQUEUE_REPLENISH);
 		return;
 	}
@@ -1851,8 +1848,8 @@ static int find_later_rq(struct task_struct *task)
 				return this_cpu;
 			}
 
-			best_cpu = cpumask_any_and_distribute(later_mask,
-							      sched_domain_span(sd));
+			best_cpu = cpumask_first_and(later_mask,
+							sched_domain_span(sd));
 			/*
 			 * Last chance: if a cpu being in both later_mask
 			 * and current sd span is valid, that becomes our
@@ -1874,7 +1871,7 @@ static int find_later_rq(struct task_struct *task)
 	if (this_cpu != -1)
 		return this_cpu;
 
-	cpu = cpumask_any_distribute(later_mask);
+	cpu = cpumask_any(later_mask);
 	if (cpu < nr_cpu_ids)
 		return cpu;
 

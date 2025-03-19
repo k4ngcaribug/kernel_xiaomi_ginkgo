@@ -1582,7 +1582,7 @@ static int sdhci_msm_dt_get_array(struct device *dev, const char *prop_name,
 		goto out;
 	}
 
-	arr = devm_kzalloc(dev, sz * sizeof(*arr), GFP_KERNEL);
+	arr = devm_kcalloc(dev, sz, sizeof(*arr), GFP_KERNEL);
 	if (!arr) {
 		ret = -ENOMEM;
 		goto out;
@@ -1767,8 +1767,10 @@ static int sdhci_msm_dt_parse_gpio_info(struct device *dev,
 			goto out;
 		}
 		pin_data->gpio_data->size = cnt;
-		pin_data->gpio_data->gpio = devm_kzalloc(dev, cnt *
-				sizeof(struct sdhci_msm_gpio), GFP_KERNEL);
+		pin_data->gpio_data->gpio = devm_kcalloc(dev,
+							 cnt,
+							 sizeof(struct sdhci_msm_gpio),
+							 GFP_KERNEL);
 
 		if (!pin_data->gpio_data->gpio) {
 			ret = -ENOMEM;
@@ -1863,10 +1865,16 @@ static int sdhci_msm_pm_qos_parse_cpu_groups(struct device *dev,
 {
 	struct device_node *np = dev->of_node;
 	u32 mask;
-	int nr_groups = 1;
+	int nr_groups;
 	int ret;
 	int i;
 
+	/* Read cpu group mapping */
+	nr_groups = of_property_count_u32_elems(np, "qcom,pm-qos-cpu-groups");
+	if (nr_groups <= 0) {
+		ret = -EINVAL;
+		goto out;
+	}
 	pdata->pm_qos_data.cpu_group_map.nr_groups = nr_groups;
 	pdata->pm_qos_data.cpu_group_map.mask =
 		kcalloc(nr_groups, sizeof(cpumask_t), GFP_KERNEL);
@@ -4156,8 +4164,8 @@ void sdhci_msm_pm_qos_irq_init(struct sdhci_host *host)
 		(msm_host->pm_qos_irq.req.type != PM_QOS_REQ_ALL_CORES))
 		set_affine_irq(msm_host, host);
 	else
-		atomic_set(&msm_host->pm_qos_irq.req.cpus_affine,
-			*cpumask_bits(cpumask_of(msm_host->pdata->pm_qos_data.irq_cpu)));
+		msm_host->pm_qos_irq.req.cpus_affine =
+		msm_host->pdata->pm_qos_data.irq_cpu;
 
 	sdhci_msm_pm_qos_wq_init(msm_host);
 
@@ -4211,8 +4219,8 @@ static ssize_t sdhci_msm_pm_qos_group_show(struct device *dev,
 	for (i = 0; i < nr_groups; i++) {
 		group = &msm_host->pm_qos[i];
 		offset += snprintf(&buf[offset], PAGE_SIZE,
-			"Group #%d PM QoS: enabled=%d, counter=%d, latency=%d\n",
-			i,
+			"Group #%d (mask=0x%lx) PM QoS: enabled=%d, counter=%d, latency=%d\n",
+			i, group->req.cpus_affine,
 			msm_host->pm_qos_group_enable,
 			atomic_read(&group->counter),
 			group->latency);
@@ -4370,15 +4378,15 @@ void sdhci_msm_pm_qos_cpu_init(struct sdhci_host *host,
 		INIT_DELAYED_WORK(&group->unvote_work,
 			sdhci_msm_pm_qos_cpu_unvote_work);
 		atomic_set(&group->counter, 0);
-		group->req.type = PM_QOS_REQ_AFFINE_CORES;
-		atomic_set(&group->req.cpus_affine,
-			*cpumask_bits(&msm_host->pdata->pm_qos_data.cpu_group_map.mask[i]));
+		group->req.type = PM_QOS_REQ_AFFINE_IRQ;
+		group->req.irq = host->irq;
 		/* We set default latency here for all pm_qos cpu groups. */
 		group->latency = PM_QOS_DEFAULT_VALUE;
 		pm_qos_add_request(&group->req, PM_QOS_CPU_DMA_LATENCY,
 			group->latency);
-		pr_info("%s (): voted for group #%d latency=%d\n",
+		pr_info("%s (): voted for group #%d (mask=0x%lx) latency=%d\n",
 			__func__, i,
+			group->req.cpus_affine,
 			group->latency);
 	}
 	msm_host->pm_qos_prev_cpu = -1;

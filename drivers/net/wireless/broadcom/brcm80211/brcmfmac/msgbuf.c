@@ -337,8 +337,11 @@ brcmf_msgbuf_alloc_pktid(struct device *dev,
 		count++;
 	} while (count < pktids->array_size);
 
-	if (count == pktids->array_size)
+	if (count == pktids->array_size) {
+		dma_unmap_single(dev, *physaddr, skb->len - data_offset,
+				 pktids->direction);
 		return -ENOMEM;
+	}
 
 	array[*idx].data_offset = data_offset;
 	array[*idx].physaddr = *physaddr;
@@ -1478,8 +1481,9 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
 		(struct brcmf_commonring **)if_msgbuf->commonrings;
 	msgbuf->flowrings = (struct brcmf_commonring **)if_msgbuf->flowrings;
 	msgbuf->max_flowrings = if_msgbuf->max_flowrings;
-	msgbuf->flowring_dma_handle = kzalloc(msgbuf->max_flowrings *
-		sizeof(*msgbuf->flowring_dma_handle), GFP_KERNEL);
+	msgbuf->flowring_dma_handle = kcalloc(msgbuf->max_flowrings,
+					      sizeof(*msgbuf->flowring_dma_handle),
+					      GFP_KERNEL);
 	if (!msgbuf->flowring_dma_handle)
 		goto fail;
 

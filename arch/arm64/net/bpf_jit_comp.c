@@ -21,7 +21,6 @@
 #include <linux/bpf.h>
 #include <linux/filter.h>
 #include <linux/printk.h>
-#include <linux/skbuff.h>
 #include <linux/slab.h>
 
 #include <asm/byteorder.h>
@@ -149,7 +148,7 @@ static inline int epilogue_offset(const struct jit_ctx *ctx)
 /* Tail call offset to jump into */
 #define PROLOGUE_OFFSET 7
 
-static int build_prologue(struct jit_ctx *ctx)
+static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	const u8 r6 = bpf2a64[BPF_REG_6];
@@ -174,7 +173,7 @@ static int build_prologue(struct jit_ctx *ctx)
 	 *                        | ... | BPF prog stack
 	 *                        |     |
 	 *                        +-----+ <= (BPF_FP - prog->aux->stack_depth)
-	 *                        |RSVD | JIT scratchpad
+	 *                        |RSVD | padding
 	 * current A64_SP =>      +-----+ <= (BPF_FP - ctx->stack_size)
 	 *                        |     |
 	 *                        | ... | Function call stack
@@ -196,19 +195,19 @@ static int build_prologue(struct jit_ctx *ctx)
 	/* Set up BPF prog stack base register */
 	emit(A64_MOV(1, fp, A64_SP), ctx);
 
-	/* Initialize tail_call_cnt */
-	emit(A64_MOVZ(1, tcc, 0, 0), ctx);
+	if (!ebpf_from_cbpf) {
+		/* Initialize tail_call_cnt */
+		emit(A64_MOVZ(1, tcc, 0, 0), ctx);
 
-	cur_offset = ctx->idx - idx0;
-	if (cur_offset != PROLOGUE_OFFSET) {
-		pr_err_once("PROLOGUE_OFFSET = %d, expected %d!\n",
-			    cur_offset, PROLOGUE_OFFSET);
-		return -1;
+		cur_offset = ctx->idx - idx0;
+		if (cur_offset != PROLOGUE_OFFSET) {
+			pr_err_once("PROLOGUE_OFFSET = %d, expected %d!\n",
+				    cur_offset, PROLOGUE_OFFSET);
+			return -1;
+		}
 	}
 
-	/* 4 byte extra for skb_copy_bits buffer */
-	ctx->stack_size = prog->aux->stack_depth + 4;
-	ctx->stack_size = STACK_ALIGN(ctx->stack_size);
+	ctx->stack_size = STACK_ALIGN(prog->aux->stack_depth);
 
 	/* Set up function call stack */
 	emit(A64_SUB_I(1, A64_SP, A64_SP, ctx->stack_size), ctx);
@@ -377,29 +376,17 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 	case BPF_ALU64 | BPF_DIV | BPF_X:
 	case BPF_ALU | BPF_MOD | BPF_X:
 	case BPF_ALU64 | BPF_MOD | BPF_X:
-	{
-		const u8 r0 = bpf2a64[BPF_REG_0];
-
-		/* if (src == 0) return 0 */
-		jmp_offset = 3; /* skip ahead to else path */
-		check_imm19(jmp_offset);
-		emit(A64_CBNZ(is64, src, jmp_offset), ctx);
-		emit(A64_MOVZ(1, r0, 0, 0), ctx);
-		jmp_offset = epilogue_offset(ctx);
-		check_imm26(jmp_offset);
-		emit(A64_B(jmp_offset), ctx);
-		/* else */
 		switch (BPF_OP(code)) {
 		case BPF_DIV:
 			emit(A64_UDIV(is64, dst, dst, src), ctx);
 			break;
 		case BPF_MOD:
 			emit(A64_UDIV(is64, tmp, dst, src), ctx);
-			emit(A64_MSUB(is64, dst, dst, tmp, src), ctx);
+			emit(A64_MUL(is64, tmp, tmp, src), ctx);
+			emit(A64_SUB(is64, dst, dst, tmp), ctx);
 			break;
 		}
 		break;
-	}
 	case BPF_ALU | BPF_LSH | BPF_X:
 	case BPF_ALU64 | BPF_LSH | BPF_X:
 		emit(A64_LSLV(is64, dst, dst, src), ctx);
@@ -502,7 +489,8 @@ emit_bswap_uxt:
 	case BPF_ALU64 | BPF_MOD | BPF_K:
 		emit_a64_mov_i(is64, tmp2, imm, ctx);
 		emit(A64_UDIV(is64, tmp, dst, tmp2), ctx);
-		emit(A64_MSUB(is64, dst, dst, tmp, tmp2), ctx);
+		emit(A64_MUL(is64, tmp, tmp, tmp2), ctx);
+		emit(A64_SUB(is64, dst, dst, tmp), ctx);
 		break;
 	case BPF_ALU | BPF_LSH | BPF_K:
 	case BPF_ALU64 | BPF_LSH | BPF_K:
@@ -847,6 +835,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 {
 	struct bpf_prog *tmp, *orig_prog = prog;
 	struct bpf_binary_header *header;
+	bool was_classic = bpf_prog_was_classic(prog);
 	bool tmp_blinded = false;
 	struct jit_ctx ctx;
 	int image_size;
@@ -883,7 +872,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		goto out_off;
 	}
 
-	if (build_prologue(&ctx)) {
+	if (build_prologue(&ctx, was_classic)) {
 		prog = orig_prog;
 		goto out_off;
 	}
@@ -905,7 +894,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	ctx.image = (__le32 *)image_ptr;
 	ctx.idx = 0;
 
-	build_prologue(&ctx);
+	build_prologue(&ctx, was_classic);
 
 	if (build_body(&ctx)) {
 		bpf_jit_binary_free(header);
@@ -963,3 +952,16 @@ bool arch_bpf_jit_check_func(const struct bpf_prog *prog)
 	return (func >= MODULES_VADDR && func < MODULES_END);
 }
 #endif
+
+void *bpf_jit_alloc_exec(unsigned long size)
+{
+	return __vmalloc_node_range(size, PAGE_SIZE, BPF_JIT_REGION_START,
+				    BPF_JIT_REGION_END, GFP_KERNEL,
+				    PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE,
+				    __builtin_return_address(0));
+}
+
+void bpf_jit_free_exec(void *addr)
+{
+	return vfree(addr);
+}

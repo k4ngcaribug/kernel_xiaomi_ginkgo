@@ -156,25 +156,6 @@ static int padzero(unsigned long elf_bss)
 #define ELF_BASE_PLATFORM NULL
 #endif
 
-/*
- * Use get_random_int() to implement AT_RANDOM while avoiding depletion
- * of the entropy pool.
- */
-static void get_atrandom_bytes(unsigned char *buf, size_t nbytes)
-{
-	unsigned char *p = buf;
-
-	while (nbytes) {
-		unsigned int random_variable;
-		size_t chunk = min(nbytes, sizeof(random_variable));
-
-		random_variable = get_random_int();
-		memcpy(p, &random_variable, chunk);
-		p += chunk;
-		nbytes -= chunk;
-	}
-}
-
 static int
 create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 		unsigned long load_addr, unsigned long interp_load_addr)
@@ -234,7 +215,7 @@ create_elf_tables(struct linux_binprm *bprm, struct elfhdr *exec,
 	/*
 	 * Generate 16 random bytes for userspace PRNG seeding.
 	 */
-	get_atrandom_bytes(k_rand_bytes, sizeof(k_rand_bytes));
+	get_random_bytes(k_rand_bytes, sizeof(k_rand_bytes));
 	u_rand_bytes = (elf_addr_t __user *)
 		       STACK_ALLOC(p, sizeof(k_rand_bytes));
 	if (__copy_to_user(u_rand_bytes, k_rand_bytes, sizeof(k_rand_bytes)))
@@ -2014,7 +1995,7 @@ static int elf_note_info_init(struct elf_note_info *info)
 	INIT_LIST_HEAD(&info->thread_list);
 
 	/* Allocate space for ELF notes */
-	info->notes = kmalloc(8 * sizeof(struct memelfnote), GFP_KERNEL);
+	info->notes = kmalloc_array(8, sizeof(struct memelfnote), GFP_KERNEL);
 	if (!info->notes)
 		return 0;
 	info->psinfo = kmalloc(sizeof(*info->psinfo), GFP_KERNEL);
@@ -2298,7 +2279,7 @@ static int elf_core_dump(struct coredump_params *cprm)
 
 	if (segs - 1 > ULONG_MAX / sizeof(*vma_filesz))
 		goto end_coredump;
-	vma_filesz = vmalloc((segs - 1) * sizeof(*vma_filesz));
+	vma_filesz = vmalloc(array_size(sizeof(*vma_filesz), (segs - 1)));
 	if (!vma_filesz)
 		goto end_coredump;
 

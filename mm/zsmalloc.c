@@ -76,7 +76,7 @@
 
 /*
  * Object location (<PFN>, <obj_idx>) is encoded as
- * a single (unsigned long) handle value.
+ * as single (unsigned long) handle value.
  *
  * Note that object index <obj_idx> starts from 0.
  *
@@ -294,7 +294,11 @@ struct zspage {
 };
 
 struct mapping_area {
+#ifdef CONFIG_PGTABLE_MAPPING
+	struct vm_struct *vm; /* vm area for mapping object that span pages */
+#else
 	char *vm_buf; /* copy buffer for objects that span pages */
+#endif
 	char *vm_addr; /* address of kmap_atomic()'ed pages */
 	enum zs_mapmode vm_mm; /* mapping mode */
 };
@@ -682,8 +686,9 @@ static void zs_pool_stat_create(struct zs_pool *pool, const char *name)
 	}
 	pool->stat_dentry = entry;
 
-	entry = debugfs_create_file("classes", S_IFREG | S_IRUGO,
-			pool->stat_dentry, pool, &zs_stat_size_ops);
+	entry = debugfs_create_file("classes", S_IFREG | 0444,
+				    pool->stat_dentry, pool, 
+				    &zs_stat_size_ops);
 	if (!entry) {
 		pr_warn("%s: debugfs file entry <%s> creation failed\n",
 				name, "classes");
@@ -763,10 +768,13 @@ static void insert_zspage(struct size_class *class,
 	 * We want to see more ZS_FULL pages and less almost empty/full.
 	 * Put pages with higher ->inuse first.
 	 */
-	if (head && get_zspage_inuse(zspage) < get_zspage_inuse(head))
-		list_add(&zspage->list, &head->list);
-	else
-		list_add(&zspage->list, &class->fullness_list[fullness]);
+	if (head) {
+		if (get_zspage_inuse(zspage) < get_zspage_inuse(head)) {
+			list_add(&zspage->list, &head->list);
+			return;
+		}
+	}
+	list_add(&zspage->list, &class->fullness_list[fullness]);
 }
 
 /*
@@ -946,11 +954,40 @@ static void reset_page(struct page *page)
  */
 void lock_zspage(struct zspage *zspage)
 {
-	struct page *page = get_first_page(zspage);
+	struct page *curr_page, *page;
 
-	do {
-		lock_page(page);
-	} while ((page = get_next_page(page)) != NULL);
+	/*
+	 * Pages we haven't locked yet can be migrated off the list while we're
+	 * trying to lock them, so we need to be careful and only attempt to
+	 * lock each page under migrate_read_lock(). Otherwise, the page we lock
+	 * may no longer belong to the zspage. This means that we may wait for
+	 * the wrong page to unlock, so we must take a reference to the page
+	 * prior to waiting for it to unlock outside migrate_read_lock().
+	 */
+	while (1) {
+		migrate_read_lock(zspage);
+		page = get_first_page(zspage);
+		if (trylock_page(page))
+			break;
+		get_page(page);
+		migrate_read_unlock(zspage);
+		wait_on_page_locked(page);
+		put_page(page);
+	}
+
+	curr_page = page;
+	while ((page = get_next_page(curr_page))) {
+		if (trylock_page(page)) {
+			curr_page = page;
+		} else {
+			get_page(page);
+			migrate_read_unlock(zspage);
+			wait_on_page_locked(page);
+			put_page(page);
+			migrate_read_lock(zspage);
+		}
+	}
+	migrate_read_unlock(zspage);
 }
 
 int trylock_zspage(struct zspage *zspage)
@@ -1155,6 +1192,46 @@ static struct zspage *find_get_zspage(struct size_class *class)
 	return zspage;
 }
 
+#ifdef CONFIG_PGTABLE_MAPPING
+static inline int __zs_cpu_up(struct mapping_area *area)
+{
+	/*
+	 * Make sure we don't leak memory if a cpu UP notification
+	 * and zs_init() race and both call zs_cpu_up() on the same cpu
+	 */
+	if (area->vm)
+		return 0;
+	area->vm = alloc_vm_area(PAGE_SIZE * 2, NULL);
+	if (!area->vm)
+		return -ENOMEM;
+	return 0;
+}
+
+static inline void __zs_cpu_down(struct mapping_area *area)
+{
+	if (area->vm)
+		free_vm_area(area->vm);
+	area->vm = NULL;
+}
+
+static inline void *__zs_map_object(struct mapping_area *area,
+				struct page *pages[2], int off, int size)
+{
+	BUG_ON(map_vm_area(area->vm, PAGE_KERNEL, pages));
+	area->vm_addr = area->vm->addr;
+	return area->vm_addr + off;
+}
+
+static inline void __zs_unmap_object(struct mapping_area *area,
+				struct page *pages[2], int off, int size)
+{
+	unsigned long addr = (unsigned long)area->vm_addr;
+
+	unmap_kernel_range(addr, PAGE_SIZE * 2);
+}
+
+#else /* CONFIG_PGTABLE_MAPPING */
+
 static inline int __zs_cpu_up(struct mapping_area *area)
 {
 	/*
@@ -1234,6 +1311,8 @@ out:
 	/* enable page faults to match kunmap_atomic() return conditions */
 	pagefault_enable();
 }
+
+#endif /* CONFIG_PGTABLE_MAPPING */
 
 static int zs_cpu_prepare(unsigned int cpu)
 {

@@ -1354,7 +1354,9 @@ static int rr_close(struct net_device *dev)
 
 	rrpriv->fw_running = 0;
 
+	spin_unlock_irqrestore(&rrpriv->lock, flags);
 	del_timer_sync(&rrpriv->timer);
+	spin_lock_irqsave(&rrpriv->lock, flags);
 
 	writel(0, &regs->TxPi);
 	writel(0, &regs->IpRxPi);
@@ -1585,7 +1587,7 @@ static int rr_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 			return -EPERM;
 		}
 
-		image = kmalloc(EEPROM_WORDS * sizeof(u32), GFP_KERNEL);
+		image = kmalloc_array(EEPROM_WORDS, sizeof(u32), GFP_KERNEL);
 		if (!image)
 			return -ENOMEM;
 

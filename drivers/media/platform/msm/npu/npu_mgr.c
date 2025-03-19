@@ -965,7 +965,7 @@ static void host_session_msg_hdlr(struct npu_device *npu_dev)
 	uint32_t *msg;
 	struct npu_host_ctx *host_ctx = &npu_dev->host_ctx;
 
-	msg = kzalloc(sizeof(uint32_t) * NPU_IPC_BUF_LENGTH, GFP_KERNEL);
+	msg = kcalloc(NPU_IPC_BUF_LENGTH, sizeof(uint32_t), GFP_KERNEL);
 	if (!msg)
 		return;
 
@@ -1572,6 +1572,13 @@ int32_t npu_host_unload_network(struct npu_client *client,
 		return -EINVAL;
 	}
 
+	if (network->is_unloading) {
+		pr_err("network is unloading\n");
+		network_put(network);
+		mutex_unlock(&host_ctx->lock);
+		return -EINVAL;
+	}
+
 	if (!network->is_active) {
 		pr_err("network is not active\n");
 		network_put(network);
@@ -1583,6 +1590,8 @@ int32_t npu_host_unload_network(struct npu_client *client,
 		pr_err("fw in error state, skip unload network in fw\n");
 		goto free_network;
 	}
+
+	network->is_unloading = true;
 
 	pr_debug("Unload network %lld\n", network->id);
 	/* prepare IPC packet for UNLOAD */
@@ -1685,6 +1694,12 @@ int32_t npu_host_exec_network(struct npu_client *client,
 
 	if (atomic_inc_return(&host_ctx->network_execute_cnt) == 1)
 		npu_notify_cdsprm_cxlimit_activity(npu_dev, true);
+
+	if (network->is_unloading) {
+		pr_err("network is unloading\n");
+		ret = -EINVAL;
+		goto exec_done;
+	}
 
 	if (!network->is_active) {
 		pr_err("network is not active\n");

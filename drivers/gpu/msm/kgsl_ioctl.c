@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2017,2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -190,6 +190,8 @@ static long __kgsl_ioctl(struct file *filep, unsigned int cmd,
 			return device->ftbl->compat_ioctl(dev_priv, cmd, arg);
 		else if (device->ftbl->ioctl != NULL)
 			return device->ftbl->ioctl(dev_priv, cmd, arg);
+
+		KGSL_DRV_INFO(device, "invalid ioctl code 0x%08X\n", cmd);
 	}
 
 	return ret;
@@ -205,7 +207,7 @@ long kgsl_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	 */
 	struct pm_qos_request req = {
 		.type = PM_QOS_REQ_AFFINE_CORES,
-		.cpus_affine = ATOMIC_INIT(BIT(raw_smp_processor_id()))
+		.cpus_affine = BIT(raw_smp_processor_id())
 	};
 	long ret;
 

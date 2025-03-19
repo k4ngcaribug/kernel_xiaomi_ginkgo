@@ -19,7 +19,6 @@
 #include <linux/msm-bus.h>
 #include "msm_bus_core.h"
 #include "msm_bus_adhoc.h"
-#include <trace/events/trace_msm_bus.h>
 
 #define NUM_CL_HANDLES	50
 #define NUM_LNODES	3
@@ -127,9 +126,9 @@ static int gen_lnode(struct device *dev,
 	}
 
 	if (!cur_dev->num_lnodes) {
-		cur_dev->lnode_list = devm_kzalloc(dev,
-				sizeof(struct link_node) * NUM_LNODES,
-								GFP_KERNEL);
+		cur_dev->lnode_list = devm_kcalloc(dev,
+				NUM_LNODES, sizeof(struct link_node),
+				GFP_KERNEL);
 		if (!cur_dev->lnode_list)
 			goto exit_gen_lnode;
 
@@ -916,8 +915,9 @@ static int alloc_handle_lst(int size)
 	struct msm_bus_client **t_cl_list;
 
 	if (!handle_list.num_entries) {
-		t_cl_list = kzalloc(sizeof(struct msm_bus_client *)
-			* NUM_CL_HANDLES, GFP_KERNEL);
+		t_cl_list = kcalloc(NUM_CL_HANDLES,
+				    sizeof(struct msm_bus_client *),
+				    GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(t_cl_list)) {
 			ret = -ENOMEM;
 			MSM_BUS_ERR("%s: Failed to allocate handles list",
@@ -1168,8 +1168,6 @@ static int update_context(uint32_t cl, bool active_only,
 		goto exit_update_context;
 	}
 
-	trace_bus_update_request_end(pdata->name);
-
 exit_update_context:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;
@@ -1230,8 +1228,6 @@ static int update_request_adhoc(uint32_t cl, unsigned int index)
 		pr_err("%s: Err updating path\n", __func__);
 		goto exit_update_request;
 	}
-
-	trace_bus_update_request_end(pdata->name);
 
 exit_update_request:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
@@ -1298,7 +1294,6 @@ static int update_bw_adhoc(struct msm_bus_client_handle *cl, u64 ab, u64 ib)
 
 	if (log_transaction)
 		getpath_debug(cl->mas, cl->first_hop, cl->active_only);
-	trace_bus_update_request_end(cl->name);
 exit_update_request:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 
@@ -1343,7 +1338,6 @@ static int update_bw_context(struct msm_bus_client_handle *cl, u64 act_ab,
 	cl->cur_act_ab = act_ab;
 	cl->cur_dual_ib = slp_ib;
 	cl->cur_dual_ab = slp_ab;
-	trace_bus_update_request_end(cl->name);
 exit_change_context:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;

@@ -318,8 +318,6 @@ void rvt_qp_exit(struct rvt_dev_info *rdi)
 	if (qps_inuse)
 		rvt_pr_err(rdi, "QP memory leak! %u still in use\n",
 			   qps_inuse);
-	if (!rdi->qp_dev)
-		return;
 
 	kfree(rdi->qp_dev->qp_table);
 	free_qpn_table(&rdi->qp_dev->qpn_table);
@@ -814,7 +812,7 @@ struct ib_qp *rvt_create_qp(struct ib_pd *ibpd,
 		sz = sizeof(struct rvt_sge) *
 			init_attr->cap.max_send_sge +
 			sizeof(struct rvt_swqe);
-		swq = vzalloc_node(sqsize * sz, rdi->dparms.node);
+		swq = vzalloc_node(array_size(sz, sqsize), rdi->dparms.node);
 		if (!swq)
 			return ERR_PTR(-ENOMEM);
 
@@ -837,11 +835,10 @@ struct ib_qp *rvt_create_qp(struct ib_pd *ibpd,
 		RCU_INIT_POINTER(qp->next, NULL);
 		if (init_attr->qp_type == IB_QPT_RC) {
 			qp->s_ack_queue =
-				kzalloc_node(
-					sizeof(*qp->s_ack_queue) *
-					 rvt_max_atomic(rdi),
-					GFP_KERNEL,
-					rdi->dparms.node);
+				kcalloc_node(rvt_max_atomic(rdi),
+					     sizeof(*qp->s_ack_queue),
+					     GFP_KERNEL,
+					     rdi->dparms.node);
 			if (!qp->s_ack_queue)
 				goto bail_qp;
 		}

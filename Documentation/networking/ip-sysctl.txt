@@ -294,8 +294,7 @@ tcp_ecn_fallback - BOOLEAN
 	Default: 1 (fallback enabled)
 
 tcp_fack - BOOLEAN
-	Enable FACK congestion avoidance and fast retransmission.
-	The value is not used, if tcp_sack is not enabled.
+	This is a legacy option, it has no effect anymore.
 
 tcp_fin_timeout - INTEGER
 	The length of time an orphaned (no longer referenced by any
@@ -791,7 +790,7 @@ cipso_cache_enable - BOOLEAN
 cipso_cache_bucket_size - INTEGER
 	The CIPSO label cache consists of a fixed size hash table with each
 	hash bucket containing a number of cache entries.  This variable limits
-	the number of entries in each hash bucket; the larger the value the
+	the number of entries in each hash bucket; the larger the value is, the
 	more CIPSO label mappings that can be cached.  When the number of
 	entries in a given hash bucket reaches this limit adding new entries
 	causes the oldest entry in the bucket to be removed to make room.
@@ -873,7 +872,7 @@ ip_nonlocal_bind - BOOLEAN
 	which can be quite useful - but may break some applications.
 	Default: 0
 
-ip_dynaddr - BOOLEAN
+ip_dynaddr - INTEGER
 	If set non-zero, enables support for dynamic addresses.
 	If set to a non-zero value larger than 1, a kernel log
 	message will be printed when dynamic address rewriting
@@ -1658,7 +1657,7 @@ use_tempaddr - INTEGER
 
 temp_valid_lft - INTEGER
 	valid lifetime (in seconds) for temporary addresses.
-	Default: 604800 (7 days)
+	Default: 172800 (2 days)
 
 temp_prefered_lft - INTEGER
 	Preferred lifetime (in seconds) for temporary addresses.

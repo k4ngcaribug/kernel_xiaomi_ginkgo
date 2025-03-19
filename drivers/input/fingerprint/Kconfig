@@ -2,7 +2,7 @@
 # Fingerprint driver configuration
 #
 
-menuconfig INPUT_FINGERPRINT
+config INPUT_FINGERPRINT
 	bool "Fingerprints"
 	help
 	  Say Y here, and a list of supported fingerprints will be displayed.
