@@ -823,3 +823,4 @@ CONFIG_POLLY_CLANG=y
 #########################################################
 CONFIG_SIMPLE_GPU_ALGORITHM=y
 CONFIG_SCHED_BORE=y
+CONFIG_SCHED_CASS=y
