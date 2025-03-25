@@ -11,14 +11,14 @@
 # Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="Venom-Kernel-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-ZIPNAME_KSU="Venom-Kernel-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME="Venom-X1-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Venom-X1-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="$HOME/tc/"
 CLANG_DIR="${TC_DIR}clang"
 GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
 GCC_32_DIR="${TC_DIR}arm-linux-androideabi-4.9"
 AK3_DIR="$HOME/AnyKernel3"
-DEFCONFIG="vendor/ginkgo-perf_defconfig"
+DEFCONFIG="vendor/ginkgo_defconfig"
 
 export PATH="$CLANG_DIR/bin:$PATH"
 export LD_LIBRARY_PATH="$CLANG_DIR/lib:$LD_LIBRARY_PATH"
@@ -61,7 +61,7 @@ if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo -e "\nKSU Support, let's Make it On\n"
 curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 git apply KernelSU-hook.patch
-sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo-perf_defconfig
+sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
 fi
@@ -88,7 +88,7 @@ make -j$(nproc --all) O=out \
 
 if [ -f "out/arch/arm64/boot/Image.gz-dtb" ] && [ -f "out/arch/arm64/boot/dtbo.img" ]; then
 echo -e "\nKernel compiled succesfully! Zipping up...\n"
-git restore arch/arm64/configs/vendor/ginkgo-perf_defconfig
+git restore arch/arm64/configs/vendor/ginkgo_defconfig
 if [ -d "$AK3_DIR" ]; then
 cp -r $AK3_DIR AnyKernel3
 elif ! git clone -q https://github.com/k4ngcaribug/AnyKernel3; then
