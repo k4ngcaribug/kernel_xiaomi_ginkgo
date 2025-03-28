@@ -126,5 +126,11 @@ all.config
 # fetched Android config fragments
 kernel/configs/android-*.cfg
 
-# build out dir
+# Ignore local folders
+AnyKernel3/
 out/
+*.zip
+
+# Ignore KernelSU folders
+KernelSU-Next/
+drivers/kernelsu
