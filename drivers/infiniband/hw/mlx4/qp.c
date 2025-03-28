@@ -573,8 +573,8 @@ static int alloc_proxy_bufs(struct ib_device *dev, struct mlx4_ib_qp *qp)
 	int i;
 
 	qp->sqp_proxy_rcv =
-		kmalloc_array(qp->rq.wqe_cnt, sizeof(struct mlx4_ib_buf),
-			      GFP_KERNEL);
+		kmalloc(sizeof (struct mlx4_ib_buf) * qp->rq.wqe_cnt,
+			GFP_KERNEL);
 	if (!qp->sqp_proxy_rcv)
 		return -ENOMEM;
 	for (i = 0; i < qp->rq.wqe_cnt; i++) {
@@ -1144,8 +1144,10 @@ static int create_qp_common(struct mlx4_ib_dev *dev, struct ib_pd *pd,
 			if (dev->steering_support ==
 			    MLX4_STEERING_MODE_DEVICE_MANAGED)
 				qp->flags |= MLX4_IB_QP_NETIF;
-			else
+			else {
+				err = -EINVAL;
 				goto err;
+			}
 		}
 
 		memcpy(&backup_cap, &init_attr->cap, sizeof(backup_cap));

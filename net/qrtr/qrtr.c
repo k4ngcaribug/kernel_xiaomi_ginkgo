@@ -1527,6 +1527,7 @@ static int qrtr_bcast_enqueue(struct qrtr_node *node, struct sk_buff *skb,
 		if (node->nid == QRTR_EP_NID_AUTO && type != QRTR_TYPE_HELLO)
 			continue;
 		skbn = skb_clone(skb, GFP_KERNEL);
+
 		if (!skbn)
 			break;
 		skb_set_owner_w(skbn, skb->sk);
@@ -1706,6 +1707,7 @@ static int qrtr_recvmsg(struct socket *sock, struct msghdr *msg,
 
 	if (sock_flag(sk, SOCK_ZAPPED)) {
 		release_sock(sk);
+		pr_err("%s: Invalid addr error\n", __func__);
 		return -EADDRNOTAVAIL;
 	}
 
@@ -1724,8 +1726,10 @@ static int qrtr_recvmsg(struct socket *sock, struct msghdr *msg,
 	}
 
 	rc = skb_copy_datagram_msg(skb, 0, msg, copied);
-	if (rc < 0)
+	if (rc < 0) {
+		pr_err("%s: Failed to copy skb rc[%d]\n", __func__, rc);
 		goto out;
+	}
 	rc = copied;
 
 	if (addr) {

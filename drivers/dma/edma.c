@@ -1073,7 +1073,8 @@ static struct dma_async_tx_descriptor *edma_prep_slave_sg(
 		return NULL;
 	}
 
-	edesc = kzalloc(struct_size(edesc, pset, sg_len), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + sg_len * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc)
 		return NULL;
 
@@ -1190,7 +1191,8 @@ static struct dma_async_tx_descriptor *edma_prep_dma_memcpy(
 			nslots = 2;
 	}
 
-	edesc = kzalloc(struct_size(edesc, pset, nslots), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + nslots * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc)
 		return NULL;
 
@@ -1312,7 +1314,8 @@ static struct dma_async_tx_descriptor *edma_prep_dma_cyclic(
 		}
 	}
 
-	edesc = kzalloc(struct_size(edesc, pset, nslots), GFP_ATOMIC);
+	edesc = kzalloc(sizeof(*edesc) + nslots * sizeof(edesc->pset[0]),
+			GFP_ATOMIC);
 	if (!edesc)
 		return NULL;
 
@@ -2295,7 +2298,7 @@ static int edma_probe(struct platform_device *pdev)
 	if (irq < 0 && node)
 		irq = irq_of_parse_and_map(node, 0);
 
-	if (irq >= 0) {
+	if (irq > 0) {
 		irq_name = devm_kasprintf(dev, GFP_KERNEL, "%s_ccint",
 					  dev_name(dev));
 		ret = devm_request_irq(dev, irq, dma_irq_handler, 0, irq_name,
@@ -2311,7 +2314,7 @@ static int edma_probe(struct platform_device *pdev)
 	if (irq < 0 && node)
 		irq = irq_of_parse_and_map(node, 2);
 
-	if (irq >= 0) {
+	if (irq > 0) {
 		irq_name = devm_kasprintf(dev, GFP_KERNEL, "%s_ccerrint",
 					  dev_name(dev));
 		ret = devm_request_irq(dev, irq, dma_ccerr_handler, 0, irq_name,

@@ -1,5 +1,4 @@
 /* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2057,8 +2056,8 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned int event,
 		if (!mdwc->num_gsi_event_buffers)
 			break;
 
-		mdwc->gsi_ev_buff = devm_kcalloc(dwc->dev,
-			mdwc->num_gsi_event_buffers, sizeof(*dwc->ev_buf),
+		mdwc->gsi_ev_buff = devm_kzalloc(dwc->dev,
+			sizeof(*dwc->ev_buf) * mdwc->num_gsi_event_buffers,
 			GFP_KERNEL);
 		if (!mdwc->gsi_ev_buff) {
 			dev_err(dwc->dev, "can't allocate gsi_ev_buff\n");
@@ -2635,8 +2634,6 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool force_power_collapse)
 		dev_dbg(mdwc->dev, "defer suspend with %d(msecs)\n",
 					mdwc->lpm_to_suspend_delay);
 		pm_wakeup_event(mdwc->dev, mdwc->lpm_to_suspend_delay);
-	} else {
-		pm_relax(mdwc->dev);
 	}
 
 	atomic_set(&dwc->in_lpm, 1);
@@ -2662,9 +2659,8 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool force_power_collapse)
 	dbg_event(0xFF, "Ctl Sus", atomic_read(&dwc->in_lpm));
 
 	/* kick_sm if it is waiting for lpm sequence to finish */
-//	if (test_and_clear_bit(WAIT_FOR_LPM, &mdwc->inputs))
-//		queue_delayed_work(mdwc->sm_usb_wq, &mdwc->sm_work, 0);
-	test_and_clear_bit(WAIT_FOR_LPM, &mdwc->inputs);
+	if (test_and_clear_bit(WAIT_FOR_LPM, &mdwc->inputs))
+		queue_delayed_work(mdwc->sm_usb_wq, &mdwc->sm_work, 0);
 	mutex_unlock(&mdwc->suspend_resume_mutex);
 
 	return 0;
@@ -2692,8 +2688,6 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 		mutex_unlock(&mdwc->suspend_resume_mutex);
 		return 0;
 	}
-
-	pm_stay_awake(mdwc->dev);
 
 	if (mdwc->in_host_mode && mdwc->max_rh_port_speed == USB_SPEED_HIGH)
 		dwc3_msm_update_bus_bw(mdwc, BUS_VOTE_SVS);
@@ -4907,6 +4901,7 @@ static struct platform_driver dwc3_msm_driver = {
 		.name	= "msm-dwc3",
 		.pm	= &dwc3_msm_dev_pm_ops,
 		.of_match_table	= of_dwc3_matach,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 

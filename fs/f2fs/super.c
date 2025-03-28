@@ -737,24 +737,7 @@ static int parse_options(struct super_block *sb, char *options)
 			kvfree(name);
 			break;
 		case Opt_fsync:
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-			if (strlen(name) == 5 &&
-					!strncmp(name, "posix", 5)) {
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
-			} else if (strlen(name) == 6 &&
-					!strncmp(name, "strict", 6)) {
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_STRICT;
-			} else if (strlen(name) == 9 &&
-					!strncmp(name, "nobarrier", 9)) {
-				F2FS_OPTION(sbi).fsync_mode =
-							FSYNC_MODE_NOBARRIER;
-			} else {
-				kvfree(name);
-				return -EINVAL;
-			}
-			kvfree(name);
+			f2fs_msg(sbi->sb, KERN_INFO, "changing fsync mode not supported");
 			break;
 		case Opt_test_dummy_encryption:
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
@@ -1452,7 +1435,7 @@ static void default_options(struct f2fs_sb_info *sbi)
 	F2FS_OPTION(sbi).inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
 	F2FS_OPTION(sbi).whint_mode = WHINT_MODE_OFF;
 	F2FS_OPTION(sbi).alloc_mode = ALLOC_MODE_DEFAULT;
-	F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
+	F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_STRICT;
 	F2FS_OPTION(sbi).test_dummy_encryption = false;
 	F2FS_OPTION(sbi).s_resuid = make_kuid(&init_user_ns, F2FS_DEF_RESUID);
 	F2FS_OPTION(sbi).s_resgid = make_kgid(&init_user_ns, F2FS_DEF_RESGID);
@@ -2355,9 +2338,9 @@ static inline bool sanity_check_area_boundary(struct f2fs_sb_info *sbi,
 	u32 segment_count = le32_to_cpu(raw_super->segment_count);
 	u32 log_blocks_per_seg = le32_to_cpu(raw_super->log_blocks_per_seg);
 	u64 main_end_blkaddr = main_blkaddr +
-				(segment_count_main << log_blocks_per_seg);
+				((u64)segment_count_main << log_blocks_per_seg);
 	u64 seg_end_blkaddr = segment0_blkaddr +
-				(segment_count << log_blocks_per_seg);
+				((u64)segment_count << log_blocks_per_seg);
 
 	if (segment0_blkaddr != cp_blkaddr) {
 		f2fs_msg(sb, KERN_INFO,
@@ -2449,6 +2432,13 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 	size_t crc_offset = 0;
 	__u32 crc = 0;
 
+	if (le32_to_cpu(raw_super->magic) != F2FS_SUPER_MAGIC) {
+		f2fs_msg(sb, KERN_INFO,
+			"Magic Mismatch, valid(0x%x) - read(0x%x)",
+			F2FS_SUPER_MAGIC, le32_to_cpu(raw_super->magic));
+		return -EINVAL;
+	}
+
 	/* Check checksum_offset and crc in superblock */
 	if (__F2FS_HAS_FEATURE(raw_super, F2FS_FEATURE_SB_CHKSUM)) {
 		crc_offset = le32_to_cpu(raw_super->checksum_offset);
@@ -2457,21 +2447,14 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 			f2fs_msg(sb, KERN_INFO,
 				"Invalid SB checksum offset: %zu",
 				crc_offset);
-			return 1;
+			return -EFSCORRUPTED;
 		}
 		crc = le32_to_cpu(raw_super->crc);
 		if (!f2fs_crc_valid(sbi, crc, raw_super, crc_offset)) {
 			f2fs_msg(sb, KERN_INFO,
 				"Invalid SB checksum value: %u", crc);
-			return 1;
+			return -EFSCORRUPTED;
 		}
-	}
-
-	if (le32_to_cpu(raw_super->magic) != F2FS_SUPER_MAGIC) {
-		f2fs_msg(sb, KERN_INFO,
-			"Magic Mismatch, valid(0x%x) - read(0x%x)",
-			F2FS_SUPER_MAGIC, le32_to_cpu(raw_super->magic));
-		return -EINVAL;
 	}
 
 	/* Currently, support only 4KB page cache size */
@@ -3295,13 +3278,13 @@ try_onemore:
 	err = f2fs_build_segment_manager(sbi);
 	if (err) {
 		f2fs_msg(sb, KERN_ERR,
-			"Failed to initialize F2FS segment manager");
+			"Failed to initialize F2FS segment manager (%d)", err);
 		goto free_sm;
 	}
 	err = f2fs_build_node_manager(sbi);
 	if (err) {
 		f2fs_msg(sb, KERN_ERR,
-			"Failed to initialize F2FS node manager");
+			"Failed to initialize F2FS node manager (%d)", err);
 		goto free_nm;
 	}
 
@@ -3665,9 +3648,7 @@ static void __exit exit_f2fs_fs(void)
 	f2fs_destroy_trace_ios();
 }
 
-module_init(init_f2fs_fs)
-module_exit(exit_f2fs_fs)
-
+late_initcall(init_f2fs_fs);
 MODULE_AUTHOR("Samsung Electronics's Praesto Team");
 MODULE_DESCRIPTION("Flash Friendly File System");
 MODULE_LICENSE("GPL");

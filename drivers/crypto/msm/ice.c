@@ -596,7 +596,7 @@ static int qcom_ice_parse_clock_info(struct platform_device *pdev,
 	if (len != cnt)
 		goto out;
 
-	clkfreq = devm_kcalloc(dev, len, sizeof(*clkfreq), GFP_KERNEL);
+	clkfreq = devm_kzalloc(dev, len * sizeof(*clkfreq), GFP_KERNEL);
 	if (!clkfreq) {
 		ret = -ENOMEM;
 		goto out;
@@ -1832,6 +1832,7 @@ static struct platform_driver qcom_ice_driver = {
 		.owner  = THIS_MODULE,
 		.name   = "qcom_ice",
 		.of_match_table = qcom_ice_match,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 module_platform_driver(qcom_ice_driver);

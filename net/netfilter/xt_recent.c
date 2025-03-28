@@ -191,7 +191,8 @@ recent_entry_init(struct recent_table *t, const union nf_inet_addr *addr,
 	}
 
 	nstamps_max += 1;
-	e = kmalloc(struct_size(e, stamps, nstamps_max), GFP_ATOMIC);
+	e = kmalloc(sizeof(*e) + sizeof(e->stamps[0]) * nstamps_max,
+		    GFP_ATOMIC);
 	if (e == NULL)
 		return NULL;
 	memcpy(&e->addr, addr, sizeof(e->addr));
@@ -565,7 +566,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 {
 	struct recent_table *t = PDE_DATA(file_inode(file));
 	struct recent_entry *e;
-	char buf[sizeof("+b335:1d35:1e55:dead:c0de:1715:5afe:c0de")];
+	char buf[sizeof("+b335:1d35:1e55:dead:c0de:1715:255.255.255.255")];
 	const char *c = buf;
 	union nf_inet_addr addr = {};
 	u_int16_t family;

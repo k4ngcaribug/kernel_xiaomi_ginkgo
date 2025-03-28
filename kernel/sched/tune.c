@@ -582,6 +582,26 @@ int schedtune_cpu_boost(int cpu)
 	return bg->boost_max;
 }
 
+static inline int schedtune_adj_ta(struct task_struct *p)
+{
+	struct schedtune *st;
+	char name_buf[NAME_MAX + 1];
+	int adj = p->signal->oom_score_adj;
+
+	/* Don't touch kthreads */
+	if (p->flags & PF_KTHREAD)
+		return 0;
+
+	st = task_schedtune(p);
+	cgroup_name(st->css.cgroup, name_buf, sizeof(name_buf));
+	if (!strncmp(name_buf, "top-app", strlen("top-app"))) {
+		pr_debug("top app is %s with adj %i\n", p->comm, adj);
+		return adj == 0 ? 10 : 1;
+	}
+
+	return 0;
+}
+
 int schedtune_task_boost(struct task_struct *p)
 {
 	struct schedtune *st;
@@ -637,8 +657,8 @@ int schedtune_prefer_idle(struct task_struct *p)
 static u64
 prefer_idle_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
-	struct schedtune *st = css_st(css);
-
+        struct schedtune *st = css_st(css);
+	
 	if (is_battery_saver_on())
 		return 0;
 
@@ -658,8 +678,8 @@ prefer_idle_write(struct cgroup_subsys_state *css, struct cftype *cft,
 static s64
 boost_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
-	struct schedtune *st = css_st(css);
-
+        struct schedtune *st = css_st(css);
+	
 	if (is_battery_saver_on())
 		return 0;
 

@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/nospec.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
 #include <linux/device.h>
@@ -135,7 +136,7 @@ struct gpio_desc *gpiochip_get_desc(struct gpio_chip *chip,
 	if (hwnum >= gdev->ngpio)
 		return ERR_PTR(-EINVAL);
 
-	return &gdev->descs[hwnum];
+	return &gdev->descs[array_index_nospec(hwnum, gdev->ngpio)];
 }
 
 /**
@@ -3600,7 +3601,8 @@ struct gpio_descs *__must_check gpiod_get_array(struct device *dev,
 	if (count < 0)
 		return ERR_PTR(count);
 
-	descs = kzalloc(struct_size(descs, desc, count), GFP_KERNEL);
+	descs = kzalloc(sizeof(*descs) + sizeof(descs->desc[0]) * count,
+			GFP_KERNEL);
 	if (!descs)
 		return ERR_PTR(-ENOMEM);
 

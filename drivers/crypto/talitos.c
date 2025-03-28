@@ -816,7 +816,11 @@ static void talitos_unregister_rng(struct device *dev)
  * HMAC_SNOOP_NO_AFEA (HSNA) instead of type IPSEC_ESP
  */
 #define TALITOS_CRA_PRIORITY_AEAD_HSNA	(TALITOS_CRA_PRIORITY - 1)
+#ifdef CONFIG_CRYPTO_DEV_TALITOS2
 #define TALITOS_MAX_KEY_SIZE		(AES_MAX_KEY_SIZE + SHA512_BLOCK_SIZE)
+#else
+#define TALITOS_MAX_KEY_SIZE		(AES_MAX_KEY_SIZE + SHA256_BLOCK_SIZE)
+#endif
 #define TALITOS_MAX_IV_LENGTH		16 /* max of AES_BLOCK_SIZE, DES3_EDE_BLOCK_SIZE */
 
 struct talitos_ctx {
@@ -3326,9 +3330,8 @@ static int talitos_probe(struct platform_device *ofdev)
 		}
 	}
 
-	priv->chan = kcalloc(priv->num_channels,
-			     sizeof(struct talitos_channel),
-			     GFP_KERNEL);
+	priv->chan = kzalloc(sizeof(struct talitos_channel) *
+			     priv->num_channels, GFP_KERNEL);
 	if (!priv->chan) {
 		dev_err(dev, "failed to allocate channel management space\n");
 		err = -ENOMEM;
@@ -3345,9 +3348,8 @@ static int talitos_probe(struct platform_device *ofdev)
 		spin_lock_init(&priv->chan[i].head_lock);
 		spin_lock_init(&priv->chan[i].tail_lock);
 
-		priv->chan[i].fifo = kcalloc(priv->fifo_len,
-					     sizeof(struct talitos_request),
-					     GFP_KERNEL);
+		priv->chan[i].fifo = kzalloc(sizeof(struct talitos_request) *
+					     priv->fifo_len, GFP_KERNEL);
 		if (!priv->chan[i].fifo) {
 			dev_err(dev, "failed to allocate request fifo %d\n", i);
 			err = -ENOMEM;

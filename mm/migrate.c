@@ -508,8 +508,12 @@ int migrate_page_move_mapping(struct address_space *mapping,
 	if (PageSwapBacked(page)) {
 		__SetPageSwapBacked(newpage);
 		if (PageSwapCache(page)) {
+			int i;
+
 			SetPageSwapCache(newpage);
-			set_page_private(newpage, page_private(page));
+			for (i = 0; i < (1 << compound_order(page)); i++)
+				set_page_private(newpage + i,
+						 page_private(page + i));
 		}
 	} else {
 		VM_BUG_ON_PAGE(PageSwapCache(page), page);
@@ -1639,7 +1643,7 @@ static int do_pages_move(struct mm_struct *mm, nodemask_t task_nodes,
 			err = -EFAULT;
 			if (get_user(p, pages + j + chunk_start))
 				goto out_pm;
-			pm[j].addr = (unsigned long)untagged_addr(p);
+			pm[j].addr = (unsigned long) p;
 
 			if (get_user(node, nodes + j + chunk_start))
 				goto out_pm;
@@ -2338,12 +2342,13 @@ next:
 		migrate->dst[migrate->npages] = 0;
 		migrate->src[migrate->npages++] = mpfn;
 	}
-	arch_leave_lazy_mmu_mode();
-	pte_unmap_unlock(ptep - 1, ptl);
 
 	/* Only flush the TLB if we actually modified any entries */
 	if (unmapped)
 		flush_tlb_range(walk->vma, start, end);
+
+	arch_leave_lazy_mmu_mode();
+	pte_unmap_unlock(ptep - 1, ptl);
 
 	return 0;
 }

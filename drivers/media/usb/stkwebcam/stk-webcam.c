@@ -571,9 +571,8 @@ static int stk_prepare_sio_buffers(struct stk_camera *dev, unsigned n_sbufs)
 	if (dev->sio_bufs != NULL)
 		pr_err("sio_bufs already allocated\n");
 	else {
-		dev->sio_bufs = kcalloc(n_sbufs,
-					sizeof(struct stk_sio_buffer),
-					GFP_KERNEL);
+		dev->sio_bufs = kzalloc(n_sbufs * sizeof(struct stk_sio_buffer),
+				GFP_KERNEL);
 		if (dev->sio_bufs == NULL)
 			return -ENOMEM;
 		for (i = 0; i < n_sbufs; i++) {
@@ -1356,7 +1355,7 @@ static int stk_camera_probe(struct usb_interface *interface,
 	if (!dev->isoc_ep) {
 		pr_err("Could not find isoc-in endpoint\n");
 		err = -ENODEV;
-		goto error;
+		goto error_put;
 	}
 	dev->vsettings.palette = V4L2_PIX_FMT_RGB565;
 	dev->vsettings.mode = MODE_VGA;
@@ -1369,10 +1368,12 @@ static int stk_camera_probe(struct usb_interface *interface,
 
 	err = stk_register_video_device(dev);
 	if (err)
-		goto error;
+		goto error_put;
 
 	return 0;
 
+error_put:
+	usb_put_intf(interface);
 error:
 	v4l2_ctrl_handler_free(hdl);
 	v4l2_device_unregister(&dev->v4l2_dev);

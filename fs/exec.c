@@ -79,12 +79,12 @@ static DEFINE_RWLOCK(binfmt_lock);
 
 #define ZYGOTE32_BIN "/system/bin/app_process32"
 #define ZYGOTE64_BIN "/system/bin/app_process64"
-static struct signal_struct *zygote32_sig;
-static struct signal_struct *zygote64_sig;
+static atomic_t zygote32_pid;
+static atomic_t zygote64_pid;
 
-bool task_is_zygote(struct task_struct *p)
+bool is_zygote_pid(pid_t pid)
 {
-	return p->signal == zygote32_sig || p->signal == zygote64_sig;
+	return atomic_read(&zygote32_pid) == pid || atomic_read(&zygote64_pid) == pid;
 }
 
 void __register_binfmt(struct linux_binfmt * fmt, int insert)
@@ -829,6 +829,7 @@ int transfer_args_to_stack(struct linux_binprm *bprm,
 			goto out;
 	}
 
+	bprm->exec += *sp_location - MAX_ARG_PAGES * PAGE_SIZE;
 	*sp_location = sp;
 
 out:
@@ -990,7 +991,7 @@ int kernel_read_file_from_fd(int fd, void **buf, loff_t *size, loff_t max_size,
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
 
-	if (!f.file)
+	if (!f.file || !(f.file->f_mode & FMODE_READ))
 		goto out;
 
 	ret = kernel_read_file(f.file, buf, size, max_size, id);
@@ -1522,6 +1523,7 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 	unsigned int mode;
 	kuid_t uid;
 	kgid_t gid;
+	int err;
 
 	/*
 	 * Since this can be called multiple times (via prepare_binprm),
@@ -1546,11 +1548,16 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 	/* Be careful if suid/sgid is set */
 	inode_lock(inode);
 
-	/* reload atomically mode/uid/gid now that lock held */
+	/* Atomically reload and check mode/uid/gid now that lock held. */
 	mode = inode->i_mode;
 	uid = inode->i_uid;
 	gid = inode->i_gid;
+	err = inode_permission(inode, MAY_EXEC);
 	inode_unlock(inode);
+
+	/* Did the exec bit vanish out from under us? Give up. */
+	if (err)
+		return;
 
 	/* We ignore suid/sgid if there are no mappings for them in the ns */
 	if (!kuid_has_mapping(bprm->cred->user_ns, uid) ||
@@ -1713,6 +1720,31 @@ static int exec_binprm(struct linux_binprm *bprm)
 	return ret;
 }
 
+
+static void android_service_blacklist(const char *name)
+{
+#define FULL(x) { x, sizeof(x) }
+#define PREFIX(x) { x, sizeof(x) - 1 }
+	struct {
+		const char *path;
+		size_t len;
+	} static const blacklist[] = {
+		FULL("/vendor/bin/msm_irqbalance"),
+	};
+#undef FULL
+#undef PREFIX
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(blacklist); i++) {
+		if (!strncmp(blacklist[i].path, name, blacklist[i].len)) {
+			pr_info("%s: sending SIGSTOP to %s\n", __func__, name);
+			do_send_sig_info(SIGSTOP, SEND_SIG_PRIV, current,
+					 true);
+			break;
+		}
+	}
+}
+
 /*
  * sys_execve() executes a new program.
  */
@@ -1798,6 +1830,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 		goto out_unmark;
 
 	bprm->argc = count(argv, MAX_ARG_STRINGS);
+	if (bprm->argc == 0)
+		pr_warn_once("process '%s' launched '%s' with NULL argv: empty string added\n",
+			     current->comm, bprm->filename);
 	if ((retval = bprm->argc) < 0)
 		goto out;
 
@@ -1822,16 +1857,26 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out;
 
+	/*
+	 * When argv is empty, add an empty string ("") as argv[0] to
+	 * ensure confused userspace programs that start processing
+	 * from argv[1] won't end up walking envp. See also
+	 * bprm_stack_limits().
+	 */
+	if (bprm->argc == 0) {
+		const char *argv[] = { "", NULL };
+		retval = copy_strings_kernel(1, argv, bprm);
+		if (retval < 0)
+			goto out;
+		bprm->argc = 1;
+	}
+
 	retval = exec_binprm(bprm);
 	if (retval < 0)
 		goto out;
 
-	if (is_global_init(current->parent)) {
-		if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN)))
-			zygote32_sig = current->signal;
-		else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN)))
-			zygote64_sig = current->signal;
-	}
+	if (is_global_init(current->parent))
+		android_service_blacklist(filename->name);
 
 	/* execve succeeded */
 	current->fs->in_exec = 0;

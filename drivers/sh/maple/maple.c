@@ -161,7 +161,7 @@ int maple_add_packet(struct maple_device *mdev, u32 function, u32 command,
 	void *sendbuf = NULL;
 
 	if (length) {
-		sendbuf = kcalloc(length, 4, GFP_KERNEL);
+		sendbuf = kzalloc(length * 4, GFP_KERNEL);
 		if (!sendbuf) {
 			ret = -ENOMEM;
 			goto out;
@@ -835,8 +835,10 @@ static int __init maple_bus_init(void)
 
 	maple_queue_cache = KMEM_CACHE(maple_buffer, SLAB_HWCACHE_ALIGN);
 
-	if (!maple_queue_cache)
+	if (!maple_queue_cache) {
+		retval = -ENOMEM;
 		goto cleanup_bothirqs;
+	}
 
 	INIT_LIST_HEAD(&maple_waitq);
 	INIT_LIST_HEAD(&maple_sentq);
@@ -849,6 +851,7 @@ static int __init maple_bus_init(void)
 		if (!mdev[i]) {
 			while (i-- > 0)
 				maple_free_dev(mdev[i]);
+			retval = -ENOMEM;
 			goto cleanup_cache;
 		}
 		baseunits[i] = mdev[i];

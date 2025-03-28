@@ -240,17 +240,11 @@ static void disable_unprepare_rcg_srcs(struct clk *curr, struct clk *new)
 unsigned long
 clk_rcg2_calc_rate(unsigned long rate, u32 m, u32 n, u32 mode, u32 hid_div)
 {
-	if (hid_div) {
-		rate *= 2;
-		rate /= hid_div + 1;
-	}
+	if (hid_div)
+		rate = mult_frac(rate, 2, hid_div + 1);
 
-	if (mode) {
-		u64 tmp = rate;
-		tmp *= m;
-		do_div(tmp, n);
-		rate = tmp;
-	}
+	if (mode)
+		rate = mult_frac(rate, m, n);
 
 	return rate;
 }
@@ -1488,9 +1482,8 @@ int clk_rcg2_get_dfs_clock_rate(struct clk_rcg2 *clk, struct device *dev,
 	if (!(val & SE_CMD_DFS_EN))
 		return ret;
 
-	dfs_freq_tbl = devm_kcalloc(dev,
-				    MAX_PERF_LEVEL, sizeof(struct freq_tbl),
-				    GFP_KERNEL);
+	dfs_freq_tbl = devm_kzalloc(dev, MAX_PERF_LEVEL *
+				sizeof(struct freq_tbl), GFP_KERNEL);
 	if (!dfs_freq_tbl)
 		return -ENOMEM;
 

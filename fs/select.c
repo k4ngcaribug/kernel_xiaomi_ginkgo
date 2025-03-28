@@ -450,8 +450,10 @@ static inline void wait_key_set(poll_table *wait, unsigned long in,
 		wait->_key |= POLLOUT_SET;
 }
 
+
 static int noinline_for_stack
 do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
+
 {
 	ktime_t expire, *to = NULL;
 	struct poll_wqueues table;
@@ -1222,7 +1224,7 @@ static int compat_core_sys_select(int n, compat_ulong_t __user *inp,
 	size = FDS_BYTES(n);
 	bits = stack_fds;
 	if (size > sizeof(stack_fds) / 6) {
-		bits = kmalloc_array(6, size, GFP_KERNEL);
+		bits = kmalloc(6 * size, GFP_KERNEL);
 		ret = -ENOMEM;
 		if (!bits)
 			goto out_nofds;

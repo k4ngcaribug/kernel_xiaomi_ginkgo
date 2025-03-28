@@ -38,6 +38,7 @@
 #include <linux/prefetch.h>
 #include <linux/ratelimit.h>
 #include <linux/list_lru.h>
+#include <linux/kasan.h>
 
 #include "internal.h"
 #include "mount.h"
@@ -194,7 +195,7 @@ static inline int dentry_string_cmp(const unsigned char *cs, const unsigned char
 	unsigned long a,b,mask;
 
 	for (;;) {
-		a = read_word_at_a_time(cs);
+		a = *(unsigned long *)cs;
 		b = load_unaligned_zeropad(ct);
 		if (tcount < sizeof(unsigned long))
 			break;
@@ -694,12 +695,12 @@ static inline bool fast_dput(struct dentry *dentry)
 	 */
 	if (unlikely(ret < 0)) {
 		spin_lock(&dentry->d_lock);
-		if (dentry->d_lockref.count > 1) {
-			dentry->d_lockref.count--;
+		if (WARN_ON_ONCE(dentry->d_lockref.count <= 0)) {
 			spin_unlock(&dentry->d_lock);
 			return 1;
 		}
-		return 0;
+		dentry->d_lockref.count--;
+		goto locked;
 	}
 
 	/*
@@ -750,6 +751,7 @@ static inline bool fast_dput(struct dentry *dentry)
 	 * else could have killed it and marked it dead. Either way, we
 	 * don't need to do anything else.
 	 */
+locked:
 	if (dentry->d_lockref.count) {
 		spin_unlock(&dentry->d_lock);
 		return 1;
@@ -1621,21 +1623,20 @@ struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 	} else if (name->len > DNAME_INLINE_LEN-1) {
 		size_t size = offsetof(struct external_name, name[1]);
 		struct external_name *p = kmalloc(size + name->len,
-						GFP_KERNEL_ACCOUNT |
-						__GFP_RECLAIMABLE);
+						  GFP_KERNEL_ACCOUNT |
+						  __GFP_RECLAIMABLE);
 		if (!p) {
 			kmem_cache_free(dentry_cache, dentry); 
 			return NULL;
 		}
 		atomic_set(&p->u.count, 1);
 		dname = p->name;
-
 		if (IS_ENABLED(CONFIG_DCACHE_WORD_ACCESS))
 			kasan_unpoison_shadow(dname,
 				round_up(name->len + 1,	sizeof(unsigned long)));
 	} else  {
 		dname = dentry->d_iname;
-	}
+	}	
 
 	dentry->d_name.len = name->len;
 	dentry->d_name.hash = name->hash;
@@ -3544,28 +3545,25 @@ out:
   
 bool is_subdir(struct dentry *new_dentry, struct dentry *old_dentry)
 {
-	bool result;
+	bool subdir;
 	unsigned seq;
 
 	if (new_dentry == old_dentry)
 		return true;
 
-	do {
-		/* for restarting inner loop in case of seq retry */
-		seq = read_seqbegin(&rename_lock);
-		/*
-		 * Need rcu_readlock to protect against the d_parent trashing
-		 * due to d_move
-		 */
-		rcu_read_lock();
-		if (d_ancestor(old_dentry, new_dentry))
-			result = true;
-		else
-			result = false;
-		rcu_read_unlock();
-	} while (read_seqretry(&rename_lock, seq));
-
-	return result;
+	/* Access d_parent under rcu as d_move() may change it. */
+	rcu_read_lock();
+	seq = read_seqbegin(&rename_lock);
+	subdir = d_ancestor(old_dentry, new_dentry);
+	 /* Try lockless once... */
+	if (read_seqretry(&rename_lock, seq)) {
+		/* ...else acquire lock for progress even on deep chains. */
+		read_seqlock_excl(&rename_lock);
+		subdir = d_ancestor(old_dentry, new_dentry);
+		read_sequnlock_excl(&rename_lock);
+	}
+	rcu_read_unlock();
+	return subdir;
 }
 
 static enum d_walk_ret d_genocide_kill(void *data, struct dentry *dentry)

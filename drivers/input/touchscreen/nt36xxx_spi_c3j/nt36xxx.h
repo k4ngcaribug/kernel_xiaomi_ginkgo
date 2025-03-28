@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 - 2018 Novatek, Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * $Revision: 43560 $
  * $Date: 2019-04-19 11:34:19 +0800 (週五, 19 四月 2019) $
@@ -22,9 +22,7 @@
 #include <linux/delay.h>
 #include <linux/input.h>
 #include <linux/of.h>
-#include <linux/pm_qos.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/spi-geni-qcom.h>
 #include <linux/uaccess.h>
 #include <linux/regulator/consumer.h>
 
@@ -124,8 +122,8 @@ extern const uint16_t gesture_key_array[];
 //enable tp grip area feature
 #define LCT_TP_GRIP_AREA_EN 1
 
-//disable tp usb plugin feature
-#define NVT_USB_PLUGIN 0
+//enable tp usb plugin feature
+#define NVT_USB_PLUGIN 1
 
 #if NVT_USB_PLUGIN
 typedef struct touchscreen_usb_plugin_data {
@@ -187,7 +185,6 @@ struct nvt_ts_data {
 	uint8_t *xbuf;
 	struct mutex xbuf_lock;
 	bool irq_enabled;
-	struct pm_qos_request pm_spi_req;
 #if WAKEUP_GESTURE
 	bool delay_gesture;
 	bool is_gesture_mode;

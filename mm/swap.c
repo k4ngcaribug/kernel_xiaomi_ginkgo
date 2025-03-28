@@ -746,8 +746,8 @@ void release_pages(struct page **pages, int nr, bool cold)
 	LIST_HEAD(pages_to_free);
 	struct pglist_data *locked_pgdat = NULL;
 	struct lruvec *lruvec;
-	unsigned long uninitialized_var(flags);
-	unsigned int uninitialized_var(lock_batch);
+	unsigned long flags;
+	unsigned int lock_batch;
 
 	for (i = 0; i < nr; i++) {
 		struct page *page = pages[i];
@@ -910,11 +910,11 @@ EXPORT_SYMBOL(__pagevec_lru_add);
  * @pvec:	Where the resulting entries are placed
  * @mapping:	The address_space to search
  * @start:	The starting entry index
- * @nr_pages:	The maximum number of pages
+ * @nr_entries:	The maximum number of entries
  * @indices:	The cache indices corresponding to the entries in @pvec
  *
  * pagevec_lookup_entries() will search for and return a group of up
- * to @nr_pages pages and shadow entries in the mapping.  All
+ * to @nr_entries pages and shadow entries in the mapping.  All
  * entries are placed in @pvec.  pagevec_lookup_entries() takes a
  * reference against actual pages in @pvec.
  *

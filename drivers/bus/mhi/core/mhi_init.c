@@ -98,9 +98,12 @@ struct mhi_controller *find_mhi_controller_by_name(const char *name)
 
 const char *to_mhi_pm_state_str(enum MHI_PM_STATE state)
 {
-	int index = find_last_bit((unsigned long *)&state, 32);
+	int index;
 
-	if (index >= ARRAY_SIZE(mhi_pm_state_str))
+	if (state)
+		index = __fls(state);
+
+	if (!state || index >= ARRAY_SIZE(mhi_pm_state_str))
 		return "Invalid State";
 
 	return mhi_pm_state_str[index];
@@ -1278,7 +1281,8 @@ static int of_parse_ch_cfg(struct mhi_controller *mhi_cntrl,
 	if (!of_node)
 		return -EINVAL;
 
-	mhi_cntrl->mhi_chan = vzalloc(array_size(sizeof(*mhi_cntrl->mhi_chan), mhi_cntrl->max_chan));
+	mhi_cntrl->mhi_chan = vzalloc(mhi_cntrl->max_chan *
+				      sizeof(*mhi_cntrl->mhi_chan));
 	if (!mhi_cntrl->mhi_chan)
 		return -ENOMEM;
 
@@ -1531,8 +1535,7 @@ int of_register_mhi_controller(struct mhi_controller *mhi_cntrl)
 	INIT_WORK(&mhi_cntrl->st_worker, mhi_pm_st_worker);
 	init_waitqueue_head(&mhi_cntrl->state_event);
 
-	mhi_cntrl->wq = alloc_ordered_workqueue("mhi_w",
-						WQ_MEM_RECLAIM | WQ_HIGHPRI);
+	mhi_cntrl->wq = alloc_ordered_workqueue("mhi_w", WQ_HIGHPRI);
 	if (!mhi_cntrl->wq)
 		goto error_alloc_cmd;
 

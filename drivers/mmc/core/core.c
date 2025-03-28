@@ -678,9 +678,10 @@ out:
 	 * freq_table in clk_scaling is un32. Here allocates an individual
 	 * memory space for it and release it when exit clock scaling.
 	 */
-	clk_scaling->devfreq_profile.freq_table =  kcalloc(clk_scaling->freq_table_sz,
-							   sizeof(*(clk_scaling->devfreq_profile.freq_table)),
-							   GFP_KERNEL);
+	clk_scaling->devfreq_profile.freq_table =  kzalloc(
+			clk_scaling->freq_table_sz *
+			sizeof(*(clk_scaling->devfreq_profile.freq_table)),
+			GFP_KERNEL);
 	if (!clk_scaling->devfreq_profile.freq_table)
 		return -ENOMEM;
 	clk_scaling->devfreq_profile.max_state = clk_scaling->freq_table_sz;
@@ -2073,7 +2074,7 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			 */
 			limit_us = 3000000;
 		else
-			limit_us = 100000;
+			limit_us = 200000;
 
 		/*
 		 * SDHC cards always use these fixed values.
@@ -2927,7 +2928,13 @@ u32 mmc_select_voltage(struct mmc_host *host, u32 ocr)
 		mmc_power_cycle(host, ocr);
 	} else {
 		bit = fls(ocr) - 1;
-		ocr &= 3 << bit;
+		/*
+		 * The bit variable represents the highest voltage bit set in
+		 * the OCR register.
+		 * To keep a range of 2 values (e.g. 3.2V/3.3V and 3.3V/3.4V),
+		 * we must shift the mask '3' with (bit - 1).
+		 */
+		ocr &= 3 << (bit - 1);
 		if (bit != host->ios.vdd)
 			dev_warn(mmc_dev(host), "exceeding card's volts\n");
 	}
@@ -2985,6 +2992,11 @@ int mmc_set_uhs_voltage(struct mmc_host *host, u32 ocr)
 
 	if (!mmc_host_is_spi(host) && (cmd.resp[0] & R1_ERROR))
 		return -EIO;
+
+	if (!mmc_host_is_spi(host) && (cmd.resp[0] & R1_ERROR)) {
+		err = -EIO;
+		goto err_command;
+	}
 	/*
 	 * The card should drive cmd and dat[0:3] low immediately
 	 * after the response of cmd11, but wait 1 ms to be sure

@@ -363,6 +363,9 @@ mlx4_en_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 	int nhoff = skb_network_offset(skb);
 	int ret = 0;
 
+	if (skb->encapsulation)
+		return -EPROTONOSUPPORT;
+
 	if (skb->protocol != htons(ETH_P_IP))
 		return -EPROTONOSUPPORT;
 
@@ -2231,15 +2234,13 @@ static int mlx4_en_copy_priv(struct mlx4_en_priv *dst,
 		if (!dst->tx_ring_num[t])
 			continue;
 
-		dst->tx_ring[t] = kcalloc(MAX_TX_RINGS,
-					  sizeof(struct mlx4_en_tx_ring *),
-					  GFP_KERNEL);
+		dst->tx_ring[t] = kzalloc(sizeof(struct mlx4_en_tx_ring *) *
+					  MAX_TX_RINGS, GFP_KERNEL);
 		if (!dst->tx_ring[t])
 			goto err_free_tx;
 
-		dst->tx_cq[t] = kcalloc(MAX_TX_RINGS,
-					sizeof(struct mlx4_en_cq *),
-					GFP_KERNEL);
+		dst->tx_cq[t] = kzalloc(sizeof(struct mlx4_en_cq *) *
+					MAX_TX_RINGS, GFP_KERNEL);
 		if (!dst->tx_cq[t]) {
 			kfree(dst->tx_ring[t]);
 			goto err_free_tx;
@@ -2282,9 +2283,14 @@ int mlx4_en_try_alloc_resources(struct mlx4_en_priv *priv,
 				bool carry_xdp_prog)
 {
 	struct bpf_prog *xdp_prog;
-	int i, t;
+	int i, t, ret;
 
-	mlx4_en_copy_priv(tmp, priv, prof);
+	ret = mlx4_en_copy_priv(tmp, priv, prof);
+	if (ret) {
+		en_warn(priv, "%s: mlx4_en_copy_priv() failed, return\n",
+			__func__);
+		return ret;
+	}
 
 	if (mlx4_en_alloc_resources(tmp)) {
 		en_warn(priv,
@@ -3323,16 +3329,14 @@ int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
 		if (!priv->tx_ring_num[t])
 			continue;
 
-		priv->tx_ring[t] = kcalloc(MAX_TX_RINGS,
-					   sizeof(struct mlx4_en_tx_ring *),
-					   GFP_KERNEL);
+		priv->tx_ring[t] = kzalloc(sizeof(struct mlx4_en_tx_ring *) *
+					   MAX_TX_RINGS, GFP_KERNEL);
 		if (!priv->tx_ring[t]) {
 			err = -ENOMEM;
 			goto out;
 		}
-		priv->tx_cq[t] = kcalloc(MAX_TX_RINGS,
-					 sizeof(struct mlx4_en_cq *),
-					 GFP_KERNEL);
+		priv->tx_cq[t] = kzalloc(sizeof(struct mlx4_en_cq *) *
+					 MAX_TX_RINGS, GFP_KERNEL);
 		if (!priv->tx_cq[t]) {
 			err = -ENOMEM;
 			goto out;

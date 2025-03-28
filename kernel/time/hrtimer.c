@@ -52,6 +52,7 @@
 #include <linux/timer.h>
 #include <linux/freezer.h>
 #include <linux/compat.h>
+#include <linux/delay.h>
 
 #include <linux/uaccess.h>
 
@@ -152,6 +153,7 @@ struct hrtimer_clock_base *lock_hrtimer_base(const struct hrtimer *timer,
 			raw_spin_unlock_irqrestore(&base->cpu_base->lock, *flags);
 		}
 		cpu_relax();
+		ndelay(TIMER_LOCK_TIGHT_LOOP_DELAY_NS);
 	}
 }
 
@@ -976,6 +978,9 @@ void hrtimer_start_range_ns(struct hrtimer *timer, ktime_t tim,
 	unsigned long flags;
 	int leftmost;
 
+	if (WARN_ON_ONCE(!timer->function))
+		return;
+
 	base = lock_hrtimer_base(timer, &flags);
 
 	/* Remove an active timer from the queue: */
@@ -1067,6 +1072,7 @@ int hrtimer_cancel(struct hrtimer *timer)
 		if (ret >= 0)
 			return ret;
 		cpu_relax();
+		ndelay(TIMER_LOCK_TIGHT_LOOP_DELAY_NS);
 	}
 }
 EXPORT_SYMBOL_GPL(hrtimer_cancel);
@@ -1615,6 +1621,7 @@ SYSCALL_DEFINE2(nanosleep, struct timespec __user *, rqtp,
 	if (!timespec64_valid(&tu))
 		return -EINVAL;
 
+	current->restart_block.fn = do_no_restart_syscall;
 	current->restart_block.nanosleep.type = rmtp ? TT_NATIVE : TT_NONE;
 	current->restart_block.nanosleep.rmtp = rmtp;
 	return hrtimer_nanosleep(&tu, HRTIMER_MODE_REL, CLOCK_MONOTONIC);
@@ -1633,6 +1640,7 @@ COMPAT_SYSCALL_DEFINE2(nanosleep, struct compat_timespec __user *, rqtp,
 	if (!timespec64_valid(&tu))
 		return -EINVAL;
 
+	current->restart_block.fn = do_no_restart_syscall;
 	current->restart_block.nanosleep.type = rmtp ? TT_COMPAT : TT_NONE;
 	current->restart_block.nanosleep.compat_rmtp = rmtp;
 	return hrtimer_nanosleep(&tu, HRTIMER_MODE_REL, CLOCK_MONOTONIC);

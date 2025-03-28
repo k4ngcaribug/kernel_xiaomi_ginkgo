@@ -383,6 +383,16 @@ config INET_IPCOMP
 
 	  If unsure, say Y.
 
+config INET_TABLE_PERTURB_ORDER
+	int "INET: Source port perturbation table size (as power of 2)" if EXPERT
+	default 16
+	help
+	  Source port perturbation table size (as power of 2) for
+	  RFC 6056 3.3.4.  Algorithm 4: Double-Hash Port Selection Algorithm.
+
+	  The default is almost always what you want.
+	  Only change this if you know what you are doing.
+
 config INET_XFRM_TUNNEL
 	tristate
 	select INET_TUNNEL
@@ -676,6 +686,7 @@ config TCP_CONG_BBR
 	bufferbloat, policers, or AQM schemes that do not provide a delay
 	signal. It requires the fq ("Fair Queue") pacing packet scheduler.
 
+
 config TCP_CONG_BBR2
 	tristate "BBR2 TCP"
 	default n
@@ -693,6 +704,14 @@ config TCP_CONG_BBR2
 	AQM schemes that do not provide a delay signal. It requires pacing,
 	using either TCP internal pacing or the fq ("Fair Queue") pacing packet
 	scheduler.
+
+config TCP_CONG_SOCIOPATH
+        tristate "TCP Sociopath"
+        default n
+        ---help---
+        This is basically TCP Reno with no slow start and a much more
+        aggressive ssthresh recalculation (lowers it by 5% instead of 50%).
+
 
 choice
 	prompt "Default TCP congestion control"
@@ -734,6 +753,10 @@ choice
 	config DEFAULT_BBR2
 		bool "BBR2" if TCP_CONG_BBR2=y
 
+	config DEFAULT_SOCIOPATH
+		bool "Sociopath" if TCP_CONG_SOCIOPATH=y
+
+
 	config DEFAULT_RENO
 		bool "Reno"
 endchoice
@@ -758,7 +781,11 @@ config DEFAULT_TCP_CONG
 	default "dctcp" if DEFAULT_DCTCP
 	default "cdg" if DEFAULT_CDG
 	default "bbr" if DEFAULT_BBR
+
 	default "bbr2" if DEFAULT_BBR2
+
+    default "sociopath" if DEFAULT_SOCIOPATH
+
 	default "cubic"
 
 config TCP_MD5SIG

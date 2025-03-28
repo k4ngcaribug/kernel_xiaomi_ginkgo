@@ -105,6 +105,21 @@
 
 #include "../../lib/kstrtox.h"
 
+struct task_kill_info {
+	struct task_struct *task;
+	struct work_struct work;
+};
+
+static void proc_kill_task(struct work_struct *work)
+{
+	struct task_kill_info *kinfo = container_of(work, typeof(*kinfo), work);
+	struct task_struct *task = kinfo->task;
+
+	send_sig(SIGKILL, task, 0);
+	put_task_struct(task);
+	kfree(kinfo);
+}
+
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -409,8 +424,7 @@ static int proc_pid_stack(struct seq_file *m, struct pid_namespace *ns,
 	if (!file_ns_capable(m->file, &init_user_ns, CAP_SYS_ADMIN))
 		return -EACCES;
 
-	entries = kmalloc_array(MAX_STACK_TRACE_DEPTH, sizeof(*entries),
-				GFP_KERNEL);
+	entries = kmalloc(MAX_STACK_TRACE_DEPTH * sizeof(*entries), GFP_KERNEL);
 	if (!entries)
 		return -ENOMEM;
 
@@ -1008,6 +1022,7 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 {
 	struct mm_struct *mm = NULL;
 	struct task_struct *task;
+	char task_comm[TASK_COMM_LEN];
 	int err = 0;
 
 	task = get_proc_task(file_inode(file));
@@ -1057,6 +1072,8 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 	if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = (short)oom_adj;
 	trace_oom_score_adj_update(task);
+	if (oom_adj >= 700)
+		strncpy(task_comm, task->comm, TASK_COMM_LEN);
 
 	if (mm) {
 		struct task_struct *p;
@@ -1084,6 +1101,20 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 err_unlock:
 	mutex_unlock(&oom_adj_mutex);
 	put_task_struct(task);
+	/* These apps burn through CPU in the background. Don't let them. */
+	if (!err && oom_adj >= 700) {
+		if (!strcmp(task_comm, "id.GoogleCamera")) {
+			struct task_kill_info *kinfo;
+
+			kinfo = kmalloc(sizeof(*kinfo), GFP_KERNEL);
+			if (kinfo) {
+				get_task_struct(task);
+				kinfo->task = task;
+				INIT_WORK(&kinfo->work, proc_kill_task);
+				schedule_work(&kinfo->work);
+			}
+		}
+	}
 	return err;
 }
 
@@ -3686,7 +3717,8 @@ static int proc_tid_comm_permission(struct inode *inode, int mask)
 }
 
 static const struct inode_operations proc_tid_comm_inode_operations = {
-		.permission = proc_tid_comm_permission,
+		.setattr	= proc_setattr,
+		.permission	= proc_tid_comm_permission,
 };
 
 /*

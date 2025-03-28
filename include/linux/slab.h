@@ -13,7 +13,6 @@
 #define	_LINUX_SLAB_H
 
 #include <linux/gfp.h>
-#include <linux/overflow.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
@@ -417,7 +416,7 @@ static __always_inline void *kmem_cache_alloc_trace(struct kmem_cache *s,
 {
 	void *ret = kmem_cache_alloc(s, flags);
 
-	ret = kasan_kmalloc(s, ret, size, flags);
+	kasan_kmalloc(s, ret, size, flags);
 	return ret;
 }
 
@@ -428,7 +427,7 @@ kmem_cache_alloc_node_trace(struct kmem_cache *s,
 {
 	void *ret = kmem_cache_alloc_node(s, gfpflags, node);
 
-	ret = kasan_kmalloc(s, ret, size, gfpflags);
+	kasan_kmalloc(s, ret, size, gfpflags);
 	return ret;
 }
 #endif /* CONFIG_TRACING */
@@ -636,13 +635,11 @@ int memcg_update_all_caches(int num_memcgs);
  */
 static inline void *kmalloc_array(size_t n, size_t size, gfp_t flags)
 {
-	size_t bytes;
-
-	if (unlikely(check_mul_overflow(n, size, &bytes)))
+	if (size != 0 && n > SIZE_MAX / size)
 		return NULL;
 	if (__builtin_constant_p(n) && __builtin_constant_p(size))
-		return kmalloc(bytes, flags);
-	return __kmalloc(bytes, flags);
+		return kmalloc(n * size, flags);
+	return __kmalloc(n * size, flags);
 }
 
 /**
@@ -667,24 +664,6 @@ static inline void *kcalloc(size_t n, size_t size, gfp_t flags)
 extern void *__kmalloc_track_caller(size_t, gfp_t, unsigned long);
 #define kmalloc_track_caller(size, flags) \
 	__kmalloc_track_caller(size, flags, _RET_IP_)
-
-static inline void *kmalloc_array_node(size_t n, size_t size, gfp_t flags,
-				       int node)
-{
-	size_t bytes;
-
-	if (unlikely(check_mul_overflow(n, size, &bytes)))
-		return NULL;
-	if (__builtin_constant_p(n) && __builtin_constant_p(size))
-		return kmalloc_node(bytes, flags, node);
-	return __kmalloc_node(bytes, flags, node);
-}
-
-static inline void *kcalloc_node(size_t n, size_t size, gfp_t flags, int node)
-{
-	return kmalloc_array_node(n, size, flags | __GFP_ZERO, node);
-}
-
 
 #ifdef CONFIG_NUMA
 extern void *__kmalloc_node_track_caller(size_t, gfp_t, int, unsigned long);

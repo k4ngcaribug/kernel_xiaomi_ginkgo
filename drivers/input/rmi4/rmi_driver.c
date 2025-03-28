@@ -636,10 +636,9 @@ int rmi_read_register_desc(struct rmi_device *d, u16 addr,
 	rdesc->num_registers = bitmap_weight(rdesc->presense_map,
 						RMI_REG_DESC_PRESENSE_BITS);
 
-	rdesc->registers = devm_kcalloc(&d->dev,
-					rdesc->num_registers,
-					sizeof(struct rmi_register_desc_item),
-					GFP_KERNEL);
+	rdesc->registers = devm_kzalloc(&d->dev, rdesc->num_registers *
+				sizeof(struct rmi_register_desc_item),
+				GFP_KERNEL);
 	if (!rdesc->registers)
 		return -ENOMEM;
 
@@ -1003,6 +1002,9 @@ static int rmi_driver_remove(struct device *dev)
 	rmi_f34_remove_sysfs(rmi_dev);
 	rmi_free_function_list(rmi_dev);
 
+	irq_domain_remove(data->irqdomain);
+	data->irqdomain = NULL;
+
 	return 0;
 }
 
@@ -1058,7 +1060,7 @@ int rmi_probe_interrupts(struct rmi_driver_data *data)
 	data->num_of_irq_regs = (data->irq_count + 7) / 8;
 
 	size = BITS_TO_LONGS(data->irq_count) * sizeof(unsigned long);
-	data->irq_memory = devm_kcalloc(dev, size, 4, GFP_KERNEL);
+	data->irq_memory = devm_kzalloc(dev, size * 4, GFP_KERNEL);
 	if (!data->irq_memory) {
 		dev_err(dev, "Failed to allocate memory for irq masks.\n");
 		return -ENOMEM;
@@ -1207,7 +1209,11 @@ static int rmi_driver_probe(struct device *dev)
 		}
 		rmi_driver_set_input_params(rmi_dev, data->input);
 		data->input->phys = devm_kasprintf(dev, GFP_KERNEL,
-						"%s/input0", dev_name(dev));
+						   "%s/input0", dev_name(dev));
+		if (!data->input->phys) {
+			retval = -ENOMEM;
+			goto err;
+		}
 	}
 
 	retval = rmi_init_functions(data);

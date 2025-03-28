@@ -853,63 +853,6 @@ static enum power_supply_property div2_cp_master_props[] = {
 	POWER_SUPPLY_PROP_MIN_ICL,
 };
 
-static int div2_cp_master_get_prop_suspended(struct smb1398_chip *chip,
-				enum power_supply_property prop,
-				union power_supply_propval *val)
-{
-	switch (prop) {
-	case POWER_SUPPLY_PROP_CP_STATUS1:
-		val->intval = chip->cp_status1;
-		break;
-	case POWER_SUPPLY_PROP_CP_STATUS2:
-		val->intval = chip->cp_status2;
-		break;
-	case POWER_SUPPLY_PROP_CP_ENABLE:
-		val->intval = chip->cp_enable;
-		break;
-	case POWER_SUPPLY_PROP_CP_SWITCHER_EN:
-		val->intval = chip->switcher_en;
-		break;
-	case POWER_SUPPLY_PROP_CP_DIE_TEMP:
-		val->intval = chip->die_temp;
-		break;
-	case POWER_SUPPLY_PROP_CP_ISNS:
-		val->intval = chip->cp_isns_master;
-		break;
-	case POWER_SUPPLY_PROP_CP_ISNS_SLAVE:
-		val->intval = chip->cp_isns_slave;
-		break;
-	case POWER_SUPPLY_PROP_CP_IRQ_STATUS:
-		val->intval = chip->div2_irq_status;
-		break;
-	case POWER_SUPPLY_PROP_CP_ILIM:
-		val->intval = chip->cp_ilim;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-#define DEFAULT_HVDCP3_MIN_ICL_UA 1000000
-static int smb1398_div2_cp_get_min_icl(struct smb1398_chip *chip)
-{
-	union power_supply_propval pval;
-	int rc;
-
-	/* Use max(dt_min_icl, 1A) for HVDCP3 */
-	if (chip->usb_psy) {
-		rc = power_supply_get_property(chip->usb_psy,
-			POWER_SUPPLY_PROP_REAL_TYPE, &pval);
-		if (rc >= 0 && (pval.intval == POWER_SUPPLY_TYPE_USB_HVDCP_3))
-			return max(chip->div2_cp_min_ilim_ua,
-				DEFAULT_HVDCP3_MIN_ICL_UA);
-	}
-
-	return chip->div2_cp_min_ilim_ua;
-}
-
 static int div2_cp_master_get_prop(struct power_supply *psy,
 				enum power_supply_property prop,
 				union power_supply_propval *val)
@@ -1291,10 +1234,6 @@ static int smb1398_div2_cp_ilim_vote_cb(struct votable *votable,
 
 	if (!client)
 		return -EINVAL;
-
-	min_ilim_ua = smb1398_div2_cp_get_min_icl(chip);
-
-	ilim_ua = (ilim_ua * DIV2_ILIM_CFG_PCT) / 100;
 
 	max_ilim_ua = is_cps_available(chip) ?
 		DIV2_MAX_ILIM_DUAL_CP_UA : DIV2_MAX_ILIM_UA;

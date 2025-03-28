@@ -430,8 +430,6 @@ end:
 		sc->is_bus_enabled = false;
 	}
 
-	sc->skip_disable_before_enable = false;
-
 	if (ret && sc->parent_regulator)
 		regulator_set_voltage(sc->parent_regulator, 0, INT_MAX);
 
@@ -443,13 +441,6 @@ static int gdsc_disable(struct regulator_dev *rdev)
 	struct gdsc *sc = rdev_get_drvdata(rdev);
 	uint32_t regval;
 	int i, ret = 0;
-
-	if (sc->parent_regulator) {
-		ret = regulator_set_voltage(sc->parent_regulator,
-				RPMH_REGULATOR_LEVEL_LOW_SVS, INT_MAX);
-		if (ret)
-			return ret;
-	}
 
 	if (sc->force_root_en)
 		clk_prepare_enable(sc->clocks[sc->root_clk_idx]);
@@ -779,8 +770,8 @@ static int gdsc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	sc->clocks = devm_kcalloc(&pdev->dev,
-			sc->clock_count, sizeof(struct clk *), GFP_KERNEL);
+	sc->clocks = devm_kzalloc(&pdev->dev,
+			sizeof(struct clk *) * sc->clock_count, GFP_KERNEL);
 	if (!sc->clocks)
 		return -ENOMEM;
 
@@ -870,6 +861,8 @@ static int gdsc_probe(struct platform_device *pdev)
 		sc->mbox = mbox_request_channel(&sc->mbox_client, 0);
 		if (IS_ERR(sc->mbox)) {
 			ret = PTR_ERR(sc->mbox);
+			if (ret == -EAGAIN)
+				ret = -EPROBE_DEFER;
 			if (ret != -EPROBE_DEFER)
 				dev_err(&pdev->dev, "mailbox channel request failed, ret=%d\n",
 					ret);
@@ -945,9 +938,9 @@ static int gdsc_probe(struct platform_device *pdev)
 			goto err;
 		}
 
-		sc->reset_clocks = devm_kcalloc(&pdev->dev,
-			sc->reset_count, sizeof(struct reset_control *),
-			GFP_KERNEL);
+		sc->reset_clocks = devm_kzalloc(&pdev->dev,
+			sizeof(struct reset_control *) * sc->reset_count,
+							GFP_KERNEL);
 		if (!sc->reset_clocks) {
 			ret = -ENOMEM;
 			goto err;

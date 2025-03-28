@@ -108,9 +108,6 @@ struct task_group;
 
 #define task_is_stopped_or_traced(task)	((task->state & (__TASK_STOPPED | __TASK_TRACED)) != 0)
 
-#define task_contributes_to_load(task)	((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
-					 (task->flags & PF_FROZEN) == 0 && \
-					 (task->state & TASK_NOLOAD) == 0)
 
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 
@@ -506,7 +503,16 @@ struct sched_entity {
 	u64				sum_exec_runtime;
 	u64				vruntime;
 	u64				prev_sum_exec_runtime;
-
+#ifdef CONFIG_SCHED_BORE
+	u64				burst_time;
+	u8				prev_burst_penalty;
+	u8				curr_burst_penalty;
+	u8				burst_penalty;
+	u8				burst_score;
+	u8				child_burst;
+	u32				child_burst_cnt;
+	u64				child_burst_last_cached;
+#endif // CONFIG_SCHED_BORE
 	u64				nr_migrations;
 
 	struct sched_statistics		statistics;
@@ -1310,8 +1316,6 @@ struct task_struct {
 #endif /* CONFIG_TRACING */
 
 #ifdef CONFIG_KCOV
-	/* See kernel/kcov.c for more details. */
-
 	/* Coverage collection mode enabled for this task (0 if disabled): */
 	unsigned int			kcov_mode;
 
@@ -1323,12 +1327,6 @@ struct task_struct {
 
 	/* KCOV descriptor wired with this task or NULL: */
 	struct kcov			*kcov;
-
-	/* KCOV common handle for remote coverage collection: */
-	u64				kcov_handle;
-
-	/* KCOV sequence number: */
-	int				kcov_sequence;
 #endif
 
 #ifdef CONFIG_MEMCG
@@ -1575,7 +1573,6 @@ extern struct pid *cad_pid;
 #define PF_MEMALLOC		0x00000800	/* Allocating memory */
 #define PF_NPROC_EXCEEDED	0x00001000	/* set_user() noticed that RLIMIT_NPROC was exceeded */
 #define PF_USED_MATH		0x00002000	/* If unset the fpu must be initialized before use */
-#define PF_USED_ASYNC		0x00004000	/* Used async_schedule*(), used by module init */
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 #define PF_FROZEN		0x00010000	/* Frozen for system suspend */
 #define PF_KSWAPD		0x00020000	/* I am kswapd */
@@ -1622,7 +1619,7 @@ extern struct pid *cad_pid;
 #define tsk_used_math(p)			((p)->flags & PF_USED_MATH)
 #define used_math()				tsk_used_math(current)
 
-static inline bool is_percpu_thread(void)
+static __always_inline bool is_percpu_thread(void)
 {
 #ifdef CONFIG_SMP
 	return (current->flags & PF_NO_SETAFFINITY) &&
@@ -1710,6 +1707,11 @@ static inline bool cpupri_check_rt(void)
 	return false;
 }
 #endif
+
+void sched_migrate_to_cpumask_start(struct cpumask *old_mask,
+				    const struct cpumask *dest);
+void sched_migrate_to_cpumask_end(const struct cpumask *old_mask,
+				  const struct cpumask *dest);
 
 #ifndef cpu_relax_yield
 #define cpu_relax_yield() cpu_relax()
@@ -1830,12 +1832,6 @@ static inline void set_tsk_thread_flag(struct task_struct *tsk, int flag)
 static inline void clear_tsk_thread_flag(struct task_struct *tsk, int flag)
 {
 	clear_ti_thread_flag(task_thread_info(tsk), flag);
-}
-
-static inline void update_tsk_thread_flag(struct task_struct *tsk, int flag,
-					  bool value)
-{
-	update_ti_thread_flag(task_thread_info(tsk), flag, value);
 }
 
 static inline int test_and_set_tsk_thread_flag(struct task_struct *tsk, int flag)

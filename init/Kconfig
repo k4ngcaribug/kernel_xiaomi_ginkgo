@@ -117,6 +117,15 @@ config BUILD_SALT
           This is mostly useful for distributions which want to ensure the
           build is unique between builds. It's safe to leave the default.
 
+config LOCALVERSION_BRANCH_SHA
+	bool "Leave only branch name and current tree"
+	default y
+	depends on LOCALVERSION_AUTO
+	depends on !COMPILE_TEST
+	help
+	  A cleaner version of LOCALVERSION_AUTO, contains branch name
+	  and current tree.
+
 config HAVE_KERNEL_GZIP
 	bool
 
@@ -849,6 +858,7 @@ config FAIR_GROUP_SCHED
 config CFS_BANDWIDTH
 	bool "CPU bandwidth provisioning for FAIR_GROUP_SCHED"
 	depends on FAIR_GROUP_SCHED
+	depends on !SCHED_WALT
 	default n
 	help
 	  This option allows users to define CPU bandwidth rates (limits) for
@@ -1072,6 +1082,27 @@ config NET_NS
 	  of the network stack.
 
 endif # NAMESPACES
+
+
+config SCHED_BORE
+	bool "Burst-Oriented Response Enhancer"
+	default y
+	help
+	  In Desktop and Mobile computing, one might prefer interactive
+	  tasks to keep responsive no matter what they run in the background.
+
+	  Enabling this kernel feature modifies the scheduler to discriminate
+	  tasks by their burst time (runtime since it last went sleeping or
+	  yielding state) and prioritize those that run less bursty.
+	  Such tasks usually include window compositor, widgets backend,
+	  terminal emulator, video playback, games and so on.
+	  With a little impact to scheduling fairness, it may improve
+	  responsiveness especially under heavy background workload.
+
+	  You can turn it off by setting the sysctl kernel.sched_bore = 0.
+
+	  If unsure, say Y here.
+
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
@@ -1599,6 +1630,16 @@ config ADVISE_SYSCALLS
 	  usage, improving performance. If building an embedded system where no
 	  applications use these syscalls, you can disable this option to save
 	  space.
+
+config BPF_UNPRIV_DEFAULT_OFF
+	bool "Disable unprivileged BPF by default"
+	depends on BPF_SYSCALL
+	help
+	  Disables unprivileged BPF by default by setting the corresponding
+	  /proc/sys/kernel/unprivileged_bpf_disabled knob to 2. An admin can
+	  still reenable it by setting it to 0 later on, or permanently
+	  disable it by setting it to 1 (from which no other transition to
+	  0 is possible anymore).
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"

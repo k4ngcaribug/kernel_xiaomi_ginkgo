@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,7 +28,7 @@
 #include <soc/qcom/boot_stats.h>
 
 #define SPI_NUM_CHIPSELECT	(4)
-#define SPI_XFER_TIMEOUT_MS	(1000)
+#define SPI_XFER_TIMEOUT_MS	(250)
 #define SPI_AUTO_SUSPEND_DELAY	(250)
 /* SPI SE specific registers */
 #define SE_SPI_CPHA		(0x224)
@@ -237,13 +236,6 @@ static int spi_slv_abort(struct spi_master *spi)
 	complete_all(&mas->tx_cb);
 	complete_all(&mas->rx_cb);
 	return 0;
-}
-
-int geni_spi_get_master_irq(struct spi_device *spi_slv)
-{
-	struct spi_geni_master *mas = spi_master_get_devdata(spi_slv->master);
-
-	return mas->irq;
 }
 
 static int get_spi_clk_cfg(u32 speed_hz, struct spi_geni_master *mas,
@@ -1217,7 +1209,7 @@ static void handle_fifo_timeout(struct spi_geni_master *mas,
 				"Failed to cancel/abort m_cmd\n");
 	}
 	if (mas->cur_xfer_mode == SE_DMA) {
-		if (xfer->tx_buf && xfer->tx_dma) {
+		if (xfer->tx_buf) {
 			reinit_completion(&mas->xfer_done);
 			writel_relaxed(1, mas->base +
 				SE_DMA_TX_FSM_RST);
@@ -1229,7 +1221,7 @@ static void handle_fifo_timeout(struct spi_geni_master *mas,
 			geni_se_tx_dma_unprep(mas->wrapper_dev,
 				xfer->tx_dma, xfer->len);
 		}
-		if (xfer->rx_buf && xfer->rx_dma) {
+		if (xfer->rx_buf) {
 			reinit_completion(&mas->xfer_done);
 			writel_relaxed(1, mas->base +
 				SE_DMA_RX_FSM_RST);
@@ -1931,7 +1923,7 @@ static int ssr_spi_force_resume(struct device *dev)
 static const struct dev_pm_ops spi_geni_pm_ops = {
 	SET_RUNTIME_PM_OPS(spi_geni_runtime_suspend,
 					spi_geni_runtime_resume, NULL)
-	SET_LATE_SYSTEM_SLEEP_PM_OPS(spi_geni_suspend, spi_geni_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(spi_geni_suspend, spi_geni_resume)
 };
 
 static const struct of_device_id spi_geni_dt_match[] = {

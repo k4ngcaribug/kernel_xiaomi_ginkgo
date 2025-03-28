@@ -198,7 +198,8 @@ int kvm_vcpu_ioctl_set_cpuid(struct kvm_vcpu *vcpu,
 		goto out;
 	r = -ENOMEM;
 	if (cpuid->nent) {
-		cpuid_entries = vmalloc(array_size(sizeof(struct kvm_cpuid_entry), cpuid->nent));
+		cpuid_entries = vmalloc(sizeof(struct kvm_cpuid_entry) *
+					cpuid->nent);
 		if (!cpuid_entries)
 			goto out;
 		r = -EFAULT;
@@ -516,6 +517,11 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		union cpuid10_eax eax;
 		union cpuid10_edx edx;
 
+		if (!static_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
+			entry->eax = entry->ebx = entry->ecx = entry->edx = 0;
+			break;
+		}
+
 		perf_get_x86_pmu_capability(&cap);
 
 		/*
@@ -657,6 +663,7 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 			g_phys_as = phys_as;
 
 		entry->eax = g_phys_as | (virt_as << 8);
+		entry->ecx &= ~(GENMASK(31, 16) | GENMASK(11, 8));
 		entry->edx = 0;
 		/*
 		 * IBRS, IBPB and VIRT_SSBD aren't necessarily present in
@@ -792,7 +799,7 @@ int kvm_dev_ioctl_get_cpuid(struct kvm_cpuid2 *cpuid,
 		return -EINVAL;
 
 	r = -ENOMEM;
-	cpuid_entries = vzalloc(array_size(sizeof(struct kvm_cpuid_entry2), cpuid->nent));
+	cpuid_entries = vzalloc(sizeof(struct kvm_cpuid_entry2) * cpuid->nent);
 	if (!cpuid_entries)
 		goto out;
 

@@ -3957,13 +3957,6 @@ F:	include/uapi/linux/dccp.h
 F:	include/linux/tfrc.h
 F:	net/dccp/
 
-DECnet NETWORK LAYER
-W:	http://linux-decnet.sourceforge.net
-L:	linux-decnet-user@lists.sourceforge.net
-S:	Orphan
-F:	Documentation/networking/decnet.txt
-F:	net/decnet/
-
 DECSTATION PLATFORM SUPPORT
 M:	"Maciej W. Rozycki" <macro@linux-mips.org>
 L:	linux-mips@linux-mips.org
@@ -9561,12 +9554,6 @@ S:	Maintained
 F:	Documentation/scsi/NinjaSCSI.txt
 F:	drivers/scsi/nsp32*
 
-NINTENDO HID DRIVER
-M:	Daniel J. Ogorchock <djogorchock@gmail.com>
-L:	linux-input@vger.kernel.org
-S:	Maintained
-F:	drivers/hid/hid-nintendo*
-
 NIOS2 ARCHITECTURE
 M:	Ley Foon Tan <lftan@altera.com>
 L:	nios2-dev@lists.rocketboards.org (moderated for non-subscribers)
@@ -11312,6 +11299,7 @@ F:	drivers/block/brd.c
 
 RANDOM NUMBER DRIVER
 M:	"Theodore Ts'o" <tytso@mit.edu>
+M:	Jason A. Donenfeld <Jason@zx2c4.com>
 S:	Maintained
 F:	drivers/char/random.c
 
@@ -14917,6 +14905,18 @@ S:	Maintained
 F:	mm/zsmalloc.c
 F:	include/linux/zsmalloc.h
 F:	Documentation/vm/zsmalloc.txt
+
+ZSTD
+M:	Nick Terrell <terrelln@fb.com>
+S:	Maintained
+B:	https://github.com/facebook/zstd/issues
+T:	git git://github.com/terrelln/linux.git
+F:	include/linux/zstd*
+F:	lib/zstd/
+F:	lib/decompress_unzstd.c
+F:	crypto/zstd.c
+N:	zstd
+K:	zstd
 
 ZSWAP COMPRESSED SWAP CACHING
 M:	Seth Jennings <sjenning@redhat.com>

@@ -42,6 +42,12 @@
 #include <linux/jiffies.h>
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
+#if WAKEUP_GESTURE
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+#include <linux/input/tp_common.h>
+#endif
+#endif
+
 #ifdef CHECK_TOUCH_VENDOR
 extern char *saved_command_line;
 
@@ -176,6 +182,33 @@ int nvt_gesture_switch(struct input_dev *dev, unsigned int type, unsigned int co
 	NVT_LOG("Exit\n");
 	return 0;
 }
+
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+static ssize_t double_tap_show(struct kobject *kobj,
+                               struct kobj_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%d\n", ts->is_gesture_mode);
+}
+
+static ssize_t double_tap_store(struct kobject *kobj,
+                                struct kobj_attribute *attr, const char *buf,
+                                size_t count)
+{
+    int rc, val;
+    
+    rc = kstrtoint(buf, 10, &val);
+    if (rc)
+    return -EINVAL;
+    
+    ts->is_gesture_mode = !!val;
+    return count;
+}
+
+static struct tp_common_ops double_tap_ops = {
+    .show = double_tap_show,
+    .store = double_tap_store
+};
+#endif
 
 static int32_t nvt_ts_resume(struct device *dev);
 static int32_t nvt_ts_suspend(struct device *dev);
@@ -1319,8 +1352,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	int32_t i = 0;
 	int32_t finger_cnt = 0;
 
-	pm_qos_update_request(&ts->pm_spi_req, 100);
-
 #if WAKEUP_GESTURE
 #ifdef CONFIG_PM
 	if (ts->dev_pm_suspend && ts->is_gesture_mode) {
@@ -1371,7 +1402,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (bTouchIsAwake == 0) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
-		goto XFER_ERROR;
+		mutex_unlock(&ts->lock);
+		return IRQ_HANDLED;
 	}
 #endif
 
@@ -1467,7 +1499,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	input_sync(ts->input_dev);
 
 XFER_ERROR:
-	pm_qos_update_request(&ts->pm_spi_req, PM_QOS_DEFAULT_VALUE);
 
 	mutex_unlock(&ts->lock);
 
@@ -1905,7 +1936,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		goto err_get_regulator;
 	}
 
-	ret = nvt_ts_enable_regulator(false);//default disable regulator
+	ret = nvt_ts_enable_regulator(true);
 	if (ret < 0) {
 		NVT_ERR("Failed to enable regulator\n");
 		goto err_enable_regulator;
@@ -1994,6 +2025,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	for (retry = 0; retry < (sizeof(gesture_key_array) / sizeof(gesture_key_array[0])); retry++) {
 		input_set_capability(ts->input_dev, EV_KEY, gesture_key_array[retry]);
 	}
+#ifdef CONFIG_TOUCHSCREEN_COMMON
+    ret = tp_common_set_double_tap_ops(&double_tap_ops);
+    if (ret < 0) {
+        NVT_ERR("%s: Failed to create double_tap node err=%d\n",
+                __func__, ret);
+    }
+#endif
 #endif
 
 	sprintf(ts->phys, "input/ts");
@@ -2014,7 +2052,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_LOG("int_trigger_type=%d\n", ts->int_trigger_type);
 		ts->irq_enabled = true;
 		ret = request_threaded_irq(client->irq, NULL, nvt_ts_work_func,
-				ts->int_trigger_type | IRQF_ONESHOT | IRQF_PERF_CRITICAL, NVT_SPI_NAME, ts);
+				ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
 		if (ret != 0) {
 			NVT_ERR("request irq failed. ret=%d\n", ret);
 			goto err_int_request_failed;
@@ -2022,12 +2060,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 			nvt_irq_enable(false);
 			NVT_LOG("request irq %d succeed\n", client->irq);
 		}
-
-		ts->pm_spi_req.type = PM_QOS_REQ_AFFINE_IRQ;
-		ts->pm_spi_req.irq = geni_spi_get_master_irq(client);
-		irq_set_perf_affinity(ts->pm_spi_req.irq);
-		pm_qos_add_request(&ts->pm_spi_req, PM_QOS_CPU_DMA_LATENCY,
-			PM_QOS_DEFAULT_VALUE);
 	}
 
 #if WAKEUP_GESTURE
@@ -2307,9 +2339,6 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
 	unregister_early_suspend(&ts->early_suspend);
 #endif
-
-	pm_qos_remove_request(&ts->pm_spi_req);
-
 
 	//remove longcheer procfs
 #if LCT_TP_WORK_EN
@@ -2769,7 +2798,6 @@ static struct spi_driver nvt_spi_driver = {
 #ifdef CONFIG_OF
 		.of_match_table = nvt_match_table,
 #endif
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 
