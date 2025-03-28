@@ -533,7 +533,7 @@ static int smb2_usb_set_prop(struct power_supply *psy,
 		rc = smblib_set_prop_sdp_current_max(chg, val);
 		break;
 	default:
-		pr_err("set prop %d is not supported\n", psp);
+		pr_debug("set prop %d is not supported\n", psp);
 		rc = -EINVAL;
 		break;
 	}
