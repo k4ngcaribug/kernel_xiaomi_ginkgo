@@ -50,14 +50,14 @@ else
 	LINUX_COMPILE_BY=$KBUILD_BUILD_USER
 fi
 if test -z "$KBUILD_BUILD_HOST"; then
-	LINUX_COMPILE_HOST=`uname -n`
+	LINUX_COMPILE_HOST=`hostname`
 else
 	LINUX_COMPILE_HOST=$KBUILD_BUILD_HOST
 fi
 
 UTS_VERSION="#$VERSION"
-CONFIG_FLAGS="UnderControl"
-if [ -n "$SMP" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS SMP"; fi
+CONFIG_FLAGS=""
+if [ -n "$SMP" ] ; then CONFIG_FLAGS="SMP"; fi
 if [ -n "$PREEMPT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT"; fi
 UTS_VERSION="$UTS_VERSION $CONFIG_FLAGS $TIMESTAMP"
 
@@ -75,17 +75,13 @@ UTS_TRUNCATE="cut -b -$UTS_LEN"
 
   echo \#define UTS_VERSION \"`echo $UTS_VERSION | $UTS_TRUNCATE`\"
 
-  echo \#define LINUX_COMPILE_BY \"`echo $LINUX_COMPILE_BY | $UTS_TRUNCATE`\"
-  echo \#define LINUX_COMPILE_HOST \"`echo $LINUX_COMPILE_HOST | $UTS_TRUNCATE`\"
+  echo \#define LINUX_COMPILE_BY \"`echo https://t.me/k4ngcaribug | $UTS_TRUNCATE`\"
+  echo \#define LINUX_COMPILE_HOST \"`echo exy3zed | $UTS_TRUNCATE`\"
 
-  CC_VERSION=$($CC -v 2>&1 | grep ' version ' | sed 's/([^)]*)[[:space:]]//' | sed 's/([^)]*)//' | sed 's/[[:space:]]*$//')
-  LD_VERSION=$($LD -v | head -n1 | sed 's/(compatible with [^)]*)//' | sed 's/[[:space:]]*$//')
-  if [ -z "$KBUILD_COMPILER_STRING" ]; then
+  CC_VERSION=$($CC -v 2>&1 | grep ' version ' | sed 's/[[:space:]]*$//')
+  LD_VERSION=$($LD -v | head -n1 | sed 's/(compatible with [^)]*)//' \
+		      | sed 's/[[:space:]]*$//')
   printf '#define LINUX_COMPILER "%s"\n' "$CC_VERSION, $LD_VERSION"
-  else
-  printf '#define LINUX_COMPILER "%s"\n' "$KBUILD_COMPILER_STRING"
-  fi;
-
 ) > .tmpcompile
 
 # Only replace the real compile.h if the new one is different,
