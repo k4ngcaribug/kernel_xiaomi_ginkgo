@@ -46,15 +46,21 @@
 #include <asm/cpuidle.h>
 #include "lpm-levels.h"
 #include <trace/events/power.h>
+#if defined(CONFIG_COMMON_CLK)
 #include "../clk/clk.h"
+#elif defined(CONFIG_COMMON_CLK_MSM)
+#include "../../drivers/clk/msm/clock.h"
+#endif /* CONFIG_COMMON_CLK */
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
 
 #define SCLK_HZ (32768)
 #define PSCI_POWER_STATE(reset) (reset << 30)
 #define PSCI_AFFINITY_LEVEL(lvl) ((lvl & 0x3) << 24)
+#define BIAS_HYST (bias_hyst * NSEC_PER_MSEC)
 
 static struct system_pm_ops *sys_pm_ops;
+
 
 struct lpm_cluster *lpm_root_node;
 
@@ -597,19 +603,22 @@ static void clear_predict_history(void)
 
 static void update_history(struct cpuidle_device *dev, int idx);
 
-static void calculate_next_wakeup(uint32_t *next_wakeup_us,
-				  uint32_t next_event_us,
-				  uint32_t lvl_latency_us,
-				  s64 sleep_us)
+static inline bool is_cpu_biased(int cpu, uint64_t *bias_time)
 {
-	if (!next_event_us)
-		return;
+	u64 now = sched_clock();
+	u64 last = sched_get_cpu_last_busy_time(cpu);
+	u64 diff = 0;
 
-	if (next_event_us < lvl_latency_us)
-		return;
+	if (!last)
+		return false;
 
-	if (next_event_us < sleep_us)
-		*next_wakeup_us = next_event_us - lvl_latency_us;
+	diff = now - last;
+	if (diff < BIAS_HYST) {
+		*bias_time = BIAS_HYST - diff;
+		return true;
+	}
+
+	return false;
 }
 
 static int cpu_power_select(struct cpuidle_device *dev,
@@ -631,15 +640,14 @@ static int cpu_power_select(struct cpuidle_device *dev,
 	struct power_params *pwr_params;
 	uint64_t bias_time = 0;
 
-	if ((cpu_isolated(dev->cpu) && sleep_us < 0) || sleep_disabled)
-		return true;
+	if ((sleep_disabled && !cpu_isolated(dev->cpu)) || sleep_us < 0)
+		return best_level;
 
 	idx_restrict = cpu->nlevels + 1;
 
 	next_event_us = (uint32_t)(ktime_to_us(get_next_event_time(dev->cpu)));
 
-	bias_time = sched_lpm_disallowed_time(dev->cpu);
-	if (bias_time) {
+	if (is_cpu_biased(dev->cpu, &bias_time) && (!cpu_isolated(dev->cpu))) {
 		cpu->bias = bias_time;
 		goto done_select;
 	}
@@ -660,8 +668,14 @@ static int cpu_power_select(struct cpuidle_device *dev,
 		if (latency_us <= lvl_latency_us)
 			break;
 
-		calculate_next_wakeup(&next_wakeup_us, next_event_us,
-				      lvl_latency_us, sleep_us);
+		if (next_event_us) {
+			if (next_event_us < lvl_latency_us)
+				break;
+
+			if (((next_event_us - lvl_latency_us) < sleep_us) ||
+					(next_event_us < sleep_us))
+				next_wakeup_us = next_event_us - lvl_latency_us;
+		}
 
 		if (!i && !cpu_isolated(dev->cpu)) {
 			/*
@@ -672,7 +686,8 @@ static int cpu_power_select(struct cpuidle_device *dev,
 			if (next_wakeup_us > max_residency) {
 				predicted = (lpm_cpuidle_predict(dev, cpu,
 					&idx_restrict,
-					&idx_restrict_time, &ipi_predicted) == 1) ? 0 :
+					&idx_restrict_time,
+					&ipi_predicted) == 1) ? 0 :
 						(max_residency >> 1);
 				if (predicted && (predicted < min_residency))
 					predicted = min_residency;
@@ -1384,11 +1399,11 @@ static void update_history(struct cpuidle_device *dev, int idx)
 		else
 			history->hptr--;
 
-		history->resi[history->hptr] += dev->last_residency_ns;
+		history->resi[history->hptr] += dev->last_residency;
 		history->htmr_wkup = 0;
 		tmr = 1;
 	} else
-		history->resi[history->hptr] = dev->last_residency_ns;
+		history->resi[history->hptr] = dev->last_residency;
 
 	history->mode[history->hptr] = idx;
 
@@ -1431,7 +1446,7 @@ exit:
 
 	cluster_unprepare(cpu->parent, cpumask, idx, true, end_time, success);
 	cpu_unprepare(cpu, idx, true);
-	dev->last_residency_ns = ktime_us_delta(ktime_get(), start);
+	dev->last_residency = ktime_us_delta(ktime_get(), start);
 	update_history(dev, idx);
 	trace_cpu_idle_exit(idx, success);
 	if (lpm_prediction && cpu->lpm_prediction) {
@@ -1439,7 +1454,8 @@ exit:
 		clusttimer_cancel();
 	}
 	if (cpu->bias) {
-		biastimer_cancel();
+                if (!idx)
+			biastimer_cancel();
 		cpu->bias = 0;
 	}
 	local_irq_enable();
