@@ -513,6 +513,7 @@ struct sched_entity {
 	u32				child_burst_cnt;
 	u64				child_burst_last_cached;
 #endif // CONFIG_SCHED_BORE
+
 	u64				nr_migrations;
 
 	struct sched_statistics		statistics;
@@ -2004,11 +2005,5 @@ static inline void set_wake_up_idle(bool enabled)
 	else
 		current->flags &= ~PF_WAKE_UP_IDLE;
 }
-
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-int do_stune_boost(char *st_name, int boost, int *slot);
-int do_stune_sched_boost(char *st_name, int *slot);
-int reset_stune_boost(char *st_name, int slot);
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
 
 #endif

@@ -125,15 +125,25 @@ static int boost_slot_ta;
 static int boost_slot_fg;
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+extern uint sched_bore;
+extern uint sched_burst_smoothness_long;
+extern uint sched_burst_smoothness_short;
+extern uint sched_burst_fork_atavistic;
+extern uint sched_burst_penalty_offset;
+extern uint sched_burst_penalty_scale;
+extern uint sched_burst_cache_lifetime;
+static int __maybe_unused sixty_four     = 64;
+static int __maybe_unused maxval_12_bits = 4095;
+#endif // CONFIG_SCHED_BORE
+
 static int __maybe_unused neg_one = -1;
 static int __maybe_unused neg_three = -3;
 
 static int zero;
 static int __maybe_unused one = 1;
 static int __maybe_unused two = 2;
-#ifndef CONFIG_SCHED_BORE
 static int __maybe_unused three = 3;
-#endif // CONFIG_SCHED_BORE
 static int __maybe_unused four = 4;
 static int int_max = INT_MAX;
 static unsigned long zero_ul;
@@ -161,20 +171,6 @@ static int minolduid;
 
 static int ngroups_max = NGROUPS_MAX;
 static const int cap_last_cap = CAP_LAST_CAP;
-
-#ifdef CONFIG_SCHED_BORE
-extern uint sched_bore;
-extern uint sched_burst_score_rounding;
-extern uint sched_burst_smoothness_long;
-extern uint sched_burst_smoothness_short;
-extern uint sched_burst_fork_atavistic;
-extern uint sched_burst_penalty_offset;
-extern uint sched_burst_penalty_scale;
-extern uint sched_burst_cache_lifetime;
-static int __maybe_unused three          = 3;
-static int __maybe_unused sixty_four     = 64;
-static int __maybe_unused maxval_12_bits = 4095;
-#endif // CONFIG_SCHED_BORE
 
 /*this is needed for proc_doulongvec_minmax of sysctl_hung_task_timeout_secs */
 #ifdef CONFIG_DETECT_HUNG_TASK
@@ -1426,16 +1422,7 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
-	},
-	{
-		.procname	= "sched_burst_score_rounding",
-		.data		= &sched_burst_score_rounding,
-		.maxlen		= sizeof(int),
-		.mode		= 0644,
-		.proc_handler = proc_douintvec_minmax,
-		.extra1		= &zero,
+		.extra1		= &one,
 		.extra2		= &one,
 	},
 	{
