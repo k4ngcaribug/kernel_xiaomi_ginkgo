@@ -1221,6 +1221,7 @@ static void pch_gbe_tx_queue(struct pch_gbe_adapter *adapter,
 		buffer_info->dma = 0;
 		buffer_info->time_stamp = 0;
 		tx_ring->next_to_use = ring_num;
+		dev_kfree_skb_any(skb);
 		return;
 	}
 	buffer_info->mapped = true;
@@ -2180,7 +2181,7 @@ static void pch_gbe_set_multi(struct net_device *netdev)
 
 	if (mc_count >= PCH_GBE_MAR_ENTRIES)
 		return;
-	mta_list = kmalloc(mc_count * ETH_ALEN, GFP_ATOMIC);
+	mta_list = kmalloc_array(ETH_ALEN, mc_count, GFP_ATOMIC);
 	if (!mta_list)
 		return;
 

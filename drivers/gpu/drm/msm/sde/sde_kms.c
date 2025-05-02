@@ -2741,7 +2741,7 @@ static int sde_kms_get_mixer_count(const struct msm_kms *kms,
 			mode->hdisplay > max_mixer_width) {
 		*num_lm = 2;
 		if ((mode_clock_hz >> 1) > max_mdp_clock_hz) {
-			SDE_DEBUG("[%s] clock %d exceeds max_mdp_clk %d\n",
+			SDE_DEBUG("[%s] clock %lld exceeds max_mdp_clk %lld\n",
 					mode->name, mode_clock_hz,
 					max_mdp_clock_hz);
 			return -EINVAL;
@@ -2788,7 +2788,11 @@ retry:
 	if (ret)
 		goto end;
 
-	drm_atomic_commit(state);
+	ret = drm_atomic_commit(state);
+	if (ret) {
+		DRM_ERROR("error %d committing state\n", ret);
+		goto end;
+	}
 end:
 	if (state)
 		drm_atomic_state_put(state);
@@ -3189,40 +3193,6 @@ static void _sde_kms_set_lutdma_vbif_remap(struct sde_kms *sde_kms)
 	sde_vbif_set_qos_remap(sde_kms, &qos_params);
 }
 
-void sde_kms_update_pm_qos_irq_request(struct sde_kms *sde_kms,
-			 bool enable, bool skip_lock)
-{
-	struct msm_drm_private *priv;
-
-	if (!sde_kms->irq_num)
-		return;
-
-	priv = sde_kms->dev->dev_private;
-
-	if (!skip_lock)
-		mutex_lock(&priv->phandle.phandle_lock);
-
-	if (enable) {
-		u32 cpu_irq_latency = sde_kms->catalog->perf.cpu_irq_latency;
-		struct pm_qos_request *req = &sde_kms->pm_qos_irq_req;
-
-		if (pm_qos_request_active(req)) {
-			pm_qos_update_request(req, cpu_irq_latency);
-		} else {
-			req->type = PM_QOS_REQ_AFFINE_IRQ;
-			req->irq = sde_kms->irq_num;
-			pm_qos_add_request(req, PM_QOS_CPU_DMA_LATENCY,
-					   cpu_irq_latency);
-		}
-	} else if (!enable && pm_qos_request_active(&sde_kms->pm_qos_irq_req)) {
-		pm_qos_update_request(&sde_kms->pm_qos_irq_req,
-				PM_QOS_DEFAULT_VALUE);
-	}
-
-	if (!skip_lock)
-		mutex_unlock(&priv->phandle.phandle_lock);
-}
-
 static void sde_kms_handle_power_event(u32 event_type, void *usr)
 {
 	struct sde_kms *sde_kms = usr;
@@ -3241,9 +3211,7 @@ static void sde_kms_handle_power_event(u32 event_type, void *usr)
 		sde_kms_init_shared_hw(sde_kms);
 		_sde_kms_set_lutdma_vbif_remap(sde_kms);
 		sde_kms->first_kickoff = true;
-		sde_kms_update_pm_qos_irq_request(sde_kms, true, true);
 	} else if (event_type == SDE_POWER_EVENT_PRE_DISABLE) {
-		sde_kms_update_pm_qos_irq_request(sde_kms, false, true);
 		sde_irq_update(msm_kms, false);
 		sde_kms->first_kickoff = false;
 	}
@@ -3640,7 +3608,7 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 	sde_kms->hw_sid = sde_hw_sid_init(sde_kms->sid,
 				sde_kms->sid_len, sde_kms->catalog);
 	if (IS_ERR(sde_kms->hw_sid)) {
-		SDE_ERROR("failed to init sid %d\n", PTR_ERR(sde_kms->hw_sid));
+		SDE_ERROR("failed to init sid %ld\n", PTR_ERR(sde_kms->hw_sid));
 		sde_kms->hw_sid = NULL;
 		goto power_error;
 	}
@@ -3698,7 +3666,6 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		sde_power_resource_enable(&priv->phandle,
 						sde_kms->core_client, false);
 	}
-
 	return 0;
 
 genpd_err:

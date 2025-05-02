@@ -1506,7 +1506,7 @@ static int qedr_create_kernel_qp(struct qedr_dev *dev,
 	qp->sq.max_wr = min_t(u32, attrs->cap.max_send_wr * dev->wq_multiplier,
 			      dev->attr.max_sqe);
 
-	qp->wqe_wr_id = kzalloc(qp->sq.max_wr * sizeof(*qp->wqe_wr_id),
+	qp->wqe_wr_id = kcalloc(qp->sq.max_wr, sizeof(*qp->wqe_wr_id),
 				GFP_KERNEL);
 	if (!qp->wqe_wr_id) {
 		DP_ERR(dev, "create qp: failed SQ shadow memory allocation\n");
@@ -1524,7 +1524,7 @@ static int qedr_create_kernel_qp(struct qedr_dev *dev,
 	qp->rq.max_wr = (u16) max_t(u32, attrs->cap.max_recv_wr, 1);
 
 	/* Allocate driver internal RQ array */
-	qp->rqe_wr_id = kzalloc(qp->rq.max_wr * sizeof(*qp->rqe_wr_id),
+	qp->rqe_wr_id = kcalloc(qp->rq.max_wr, sizeof(*qp->rqe_wr_id),
 				GFP_KERNEL);
 	if (!qp->rqe_wr_id) {
 		DP_ERR(dev,
@@ -1921,6 +1921,8 @@ int qedr_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 					1 << max_t(int, attr->timeout - 8, 0);
 		else
 			qp_params.ack_timeout = 0;
+
+		qp->timeout = attr->timeout;
 	}
 
 	if (attr_mask & IB_QP_RETRY_CNT) {
@@ -2080,7 +2082,7 @@ int qedr_query_qp(struct ib_qp *ibqp,
 	rdma_ah_set_dgid_raw(&qp_attr->ah_attr, &params.dgid.bytes[0]);
 	rdma_ah_set_port_num(&qp_attr->ah_attr, 1);
 	rdma_ah_set_sl(&qp_attr->ah_attr, 0);
-	qp_attr->timeout = params.timeout;
+	qp_attr->timeout = qp->timeout;
 	qp_attr->rnr_retry = params.rnr_retry;
 	qp_attr->retry_cnt = params.retry_cnt;
 	qp_attr->min_rnr_timer = params.min_rnr_nak_timer;

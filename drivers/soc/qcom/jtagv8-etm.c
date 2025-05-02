@@ -186,7 +186,7 @@
 /* spread out etm register write */
 #define etm_writel(etm, val, off)	\
 do {							\
-	writel_relaxed_no_log(val, etm->base + off);	\
+	writel_relaxed(val, etm->base + off);	\
 	udelay(20);					\
 } while (0)
 
@@ -194,13 +194,13 @@ do {							\
 		   __raw_writel(val, etm->base + off)
 
 #define etm_readl(etm, off)		\
-		   readl_relaxed_no_log(etm->base + off)
+		   readl_relaxed(etm->base + off)
 
 #define etm_writeq(etm, val, off)	\
-		   writeq_relaxed_no_log(val, etm->base + off)
+		   writeq_relaxed(val, etm->base + off)
 
 #define etm_readq(etm, off)		\
-		   readq_relaxed_no_log(etm->base + off)
+		   readq_relaxed(etm->base + off)
 
 #define ETM_LOCK(base)							\
 do {									\
@@ -1619,8 +1619,8 @@ static int jtag_mm_etm_probe(struct platform_device *pdev, uint32_t cpu)
 		etmdata->save_restore_disabled = 1;
 
 	/* Allocate etm state save space per core */
-	etmdata->state = devm_kzalloc(dev,
-				      MAX_ETM_STATE_SIZE * sizeof(uint64_t),
+	etmdata->state = devm_kcalloc(dev,
+				      MAX_ETM_STATE_SIZE, sizeof(uint64_t),
 				      GFP_KERNEL);
 	if (!etmdata->state)
 		return -ENOMEM;

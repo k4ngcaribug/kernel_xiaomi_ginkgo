@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 - 2018 Novatek, Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * $Revision: 43560 $
  * $Date: 2019-04-19 11:34:19 +0800 (週五, 19 四月 2019) $
@@ -1389,7 +1389,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID, input_id - 1);
 			input_report_key(ts->input_dev, BTN_TOUCH, 1);
 #endif /* MT_PROTOCOL_B */
-
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_X, input_x);
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, input_y);
 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, input_w);
@@ -1870,7 +1869,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_LOG("int_trigger_type=%d\n", ts->int_trigger_type);
 		ts->irq_enabled = true;
 		ret = request_threaded_irq(client->irq, NULL, nvt_ts_work_func,
-				ts->int_trigger_type | IRQF_ONESHOT | IRQF_PERF_AFFINE, NVT_SPI_NAME, ts);
+				ts->int_trigger_type | IRQF_ONESHOT | IRQF_PERF_AFFINE,
+				NVT_SPI_NAME, ts);
 		if (ret != 0) {
 			NVT_ERR("request irq failed. ret=%d\n", ret);
 			goto err_int_request_failed;
@@ -2186,8 +2186,11 @@ static void nvt_ts_shutdown(struct spi_device *client)
 	if (ts->workqueue)
 		destroy_workqueue(ts->workqueue);
 #ifdef _MSM_DRM_NOTIFY_H_
-	if (msm_drm_unregister_client(&ts->drm_notif))
-		NVT_ERR("Error occurred while unregistering drm_notifier.\n");
+	if ((strnstr(saved_command_line,"tianma",strlen(saved_command_line)) != NULL) || (strnstr(saved_command_line,"shenchao",strlen(saved_command_line)) != NULL)){
+		if (msm_drm_unregister_client(&ts->drm_notif))
+			NVT_ERR("Error occurred while unregistering drm_notifier.\n");
+	}
+
 #else
 	if (fb_unregister_client(&ts->fb_notif))
 		NVT_ERR("Error occurred while unregistering fb_notifier.\n");
@@ -2537,10 +2540,10 @@ static int32_t __init nvt_driver_init(void)
 		ret = -ENOMEM;
 		goto err_driver;
 	} else {
-		if (strstr(saved_command_line,"tianma") != NULL) {
+		if (strnstr(saved_command_line,"tianma",strlen(saved_command_line)) != NULL) {
 			touch_vendor_id = TP_VENDOR_TIANMA;
 			NVT_LOG("TP info: [Vendor]tianma [IC]nt36672a\n");
-		} else if (strstr(saved_command_line,"shenchao") != NULL) {
+		} else if (strnstr(saved_command_line,"shenchao",strlen(saved_command_line)) != NULL) {
 			touch_vendor_id = TP_VENDOR_EBBG;
 			NVT_LOG("TP info: [Vendor]shenchao [IC]nt36672a\n");
 		} else {

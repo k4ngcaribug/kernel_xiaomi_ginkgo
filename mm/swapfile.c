@@ -6,6 +6,7 @@
  */
 
 #include <linux/mm.h>
+#include <linux/mm_inline.h>
 #include <linux/sched/mm.h>
 #include <linux/sched/task.h>
 #include <linux/hugetlb.h>
@@ -596,6 +597,7 @@ static void __del_from_avail_list(struct swap_info_struct *p)
 {
 	int nid;
 
+	assert_spin_locked(&p->lock);
 	for_each_node(nid)
 		plist_del(&p->avail_lists[nid], &swap_avail_heads[nid]);
 }
@@ -639,6 +641,7 @@ static void add_to_avail_list(struct swap_info_struct *p)
 static void swap_range_free(struct swap_info_struct *si, unsigned long offset,
 			    unsigned int nr_entries)
 {
+	unsigned long begin = offset;
 	unsigned long end = offset + nr_entries - 1;
 	void (*swap_slot_free_notify)(struct block_device *, unsigned long);
 
@@ -664,6 +667,7 @@ static void swap_range_free(struct swap_info_struct *si, unsigned long offset,
 			swap_slot_free_notify(si->bdev, offset);
 		offset++;
 	}
+	clear_shadow_from_swap_cache(si->type, begin, end);
 }
 
 static int scan_swap_map_slots(struct swap_info_struct *si,
@@ -1004,6 +1008,7 @@ start:
 			goto check_out;
 		pr_debug("scan_swap_map of si %d failed to find offset\n",
 			si->type);
+		cond_resched();
 
 		spin_lock(&swap_avail_lock);
 nextsi:
@@ -1836,7 +1841,8 @@ static int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
 	 * Move the page to the active list so it is not
 	 * immediately swapped out again after swapon.
 	 */
-	activate_page(page);
+	if (!lru_gen_enabled())
+		activate_page(page);
 out:
 	pte_unmap_unlock(pte, ptl);
 out_nolock:
@@ -1985,7 +1991,8 @@ static int unuse_mm(struct mm_struct *mm,
 		 * Activate page so shrink_inactive_list is unlikely to unmap
 		 * its ptes while lock is dropped, so swapoff can make progress.
 		 */
-		activate_page(page);
+		if (!lru_gen_enabled())
+			activate_page(page);
 		unlock_page(page);
 		down_read(&mm->mmap_sem);
 		lock_page(page);
@@ -2601,8 +2608,8 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 		spin_unlock(&swap_lock);
 		goto out_dput;
 	}
-	del_from_avail_list(p);
 	spin_lock(&p->lock);
+	del_from_avail_list(p);
 	if (p->prio < 0) {
 		struct swap_info_struct *si = p;
 		int nid;
@@ -3237,7 +3244,7 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 		p->cluster_next = 1 + (prandom_u32() % p->highest_bit);
 		nr_cluster = DIV_ROUND_UP(maxpages, SWAPFILE_CLUSTER);
 
-		cluster_info = kvzalloc(nr_cluster * sizeof(*cluster_info),
+		cluster_info = kvcalloc(nr_cluster, sizeof(*cluster_info),
 					GFP_KERNEL);
 		if (!cluster_info) {
 			error = -ENOMEM;
@@ -3272,7 +3279,8 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	}
 	/* frontswap enabled? set up bit-per-page map for frontswap */
 	if (IS_ENABLED(CONFIG_FRONTSWAP))
-		frontswap_map = kvzalloc(BITS_TO_LONGS(maxpages) * sizeof(long),
+		frontswap_map = kvcalloc(BITS_TO_LONGS(maxpages),
+					 sizeof(long),
 					 GFP_KERNEL);
 
 	if (p->bdev &&(swap_flags & SWAP_FLAG_DISCARD) && swap_discardable(p)) {

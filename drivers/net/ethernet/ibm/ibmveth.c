@@ -171,7 +171,7 @@ static int ibmveth_alloc_buffer_pool(struct ibmveth_buff_pool *pool)
 {
 	int i;
 
-	pool->free_map = kmalloc(sizeof(u16) * pool->size, GFP_KERNEL);
+	pool->free_map = kmalloc_array(pool->size, sizeof(u16), GFP_KERNEL);
 
 	if (!pool->free_map)
 		return -1;
@@ -209,7 +209,7 @@ static inline void ibmveth_flush_buffer(void *addr, unsigned long length)
 	unsigned long offset;
 
 	for (offset = 0; offset < length; offset += SMP_CACHE_BYTES)
-		asm("dcbfl %0,%1" :: "b" (addr), "r" (offset));
+		asm("dcbf %0,%1,1" :: "b" (addr), "r" (offset));
 }
 
 /* replenish the buffers for a pool.  note that we don't need to

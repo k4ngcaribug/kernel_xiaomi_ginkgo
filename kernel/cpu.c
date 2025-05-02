@@ -3,6 +3,7 @@
  *
  * This code is licenced under the GPL.
  */
+#include <linux/sched/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/smp.h>
 #include <linux/init.h>
@@ -33,6 +34,7 @@
 #include <uapi/linux/sched/types.h>
 #include <linux/highmem.h>
 #include <linux/cpuset.h>
+#include <linux/random.h>
 
 #include <trace/events/power.h>
 #define CREATE_TRACE_POINTS
@@ -535,6 +537,21 @@ static int bringup_cpu(unsigned int cpu)
 	if (ret)
 		return ret;
 	return bringup_wait_for_ap(cpu);
+}
+
+static int finish_cpu(unsigned int cpu)
+{
+	struct task_struct *idle = idle_thread_get(cpu);
+	struct mm_struct *mm = idle->active_mm;
+
+	/*
+	 * idle_task_exit() will have switched to &init_mm, now
+	 * clean up any remaining active_mm state.
+	 */
+	if (mm != &init_mm)
+		idle->active_mm = &init_mm;
+	mmdrop(mm);
+	return 0;
 }
 
 /*
@@ -1089,7 +1106,7 @@ static int do_cpu_down(unsigned int cpu, enum cpuhp_state target)
 	cpumask_andnot(&newmask, cpu_online_mask, cpumask_of(cpu));
 	preempt_enable();
 
-	/* One big and LITTLE CPU must remain online */
+	/* One big, and LITTLE CPU must remain online */
 	if (!cpumask_intersects(&newmask, cpu_lp_mask) ||
 	    !cpumask_intersects(&newmask, cpu_perf_mask))
 		return -EINVAL;
@@ -1414,6 +1431,8 @@ void enable_nonboot_cpus(void)
 
 	arch_enable_nonboot_cpus_end();
 
+	balance_irqs();
+
 	cpumask_clear(frozen_cpus);
 	reaffine_perf_irqs(false);
 out:
@@ -1500,6 +1519,11 @@ static struct cpuhp_step cpuhp_bp_states[] = {
 		.startup.single		= perf_event_init_cpu,
 		.teardown.single	= perf_event_exit_cpu,
 	},
+	[CPUHP_RANDOM_PREPARE] = {
+		.name			= "random:prepare",
+		.startup.single		= random_prepare_cpu,
+		.teardown.single	= NULL,
+	},
 	[CPUHP_WORKQUEUE_PREP] = {
 		.name			= "workqueue:prepare",
 		.startup.single		= workqueue_prepare_cpu,
@@ -1544,7 +1568,7 @@ static struct cpuhp_step cpuhp_bp_states[] = {
 	[CPUHP_BRINGUP_CPU] = {
 		.name			= "cpu:bringup",
 		.startup.single		= bringup_cpu,
-		.teardown.single	= NULL,
+		.teardown.single	= finish_cpu,
 		.cant_stop		= true,
 	},
 	/*
@@ -1625,6 +1649,11 @@ static struct cpuhp_step cpuhp_ap_states[] = {
 		.name			= "workqueue:online",
 		.startup.single		= workqueue_online_cpu,
 		.teardown.single	= workqueue_offline_cpu,
+	},
+	[CPUHP_AP_RANDOM_ONLINE] = {
+		.name			= "random:online",
+		.startup.single		= random_online_cpu,
+		.teardown.single	= NULL,
 	},
 	[CPUHP_AP_RCUTREE_ONLINE] = {
 		.name			= "RCU/tree:online",

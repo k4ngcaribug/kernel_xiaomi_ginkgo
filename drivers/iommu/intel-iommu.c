@@ -2785,6 +2785,7 @@ static int __init si_domain_init(int hw)
 
 	if (md_domain_init(si_domain, DEFAULT_DOMAIN_ADDRESS_WIDTH)) {
 		domain_exit(si_domain);
+		si_domain = NULL;
 		return -EFAULT;
 	}
 
@@ -3197,7 +3198,7 @@ static int copy_translation_tables(struct intel_iommu *iommu)
 	/* This is too big for the stack - allocate it from slab */
 	ctxt_table_entries = ext ? 512 : 256;
 	ret = -ENOMEM;
-	ctxt_tbls = kzalloc(ctxt_table_entries * sizeof(void *), GFP_KERNEL);
+	ctxt_tbls = kcalloc(ctxt_table_entries, sizeof(void *), GFP_KERNEL);
 	if (!ctxt_tbls)
 		goto out_unmap;
 
@@ -3474,6 +3475,10 @@ free_iommu:
 	for_each_active_iommu(iommu, drhd) {
 		disable_dmar_iommu(iommu);
 		free_dmar_iommu(iommu);
+	}
+	if (si_domain) {
+		domain_exit(si_domain);
+		si_domain = NULL;
 	}
 
 	kfree(g_iommus);
@@ -4092,7 +4097,7 @@ static int iommu_suspend(void)
 	unsigned long flag;
 
 	for_each_active_iommu(iommu, drhd) {
-		iommu->iommu_state = kzalloc(sizeof(u32) * MAX_SR_DMAR_REGS,
+		iommu->iommu_state = kcalloc(MAX_SR_DMAR_REGS, sizeof(u32),
 						 GFP_ATOMIC);
 		if (!iommu->iommu_state)
 			goto nomem;

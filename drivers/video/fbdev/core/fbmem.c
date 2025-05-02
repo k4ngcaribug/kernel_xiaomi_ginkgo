@@ -497,7 +497,8 @@ static int fb_show_logo_line(struct fb_info *info, int rotate,
 	}
 
 	if (fb_logo.depth <= 4) {
-		logo_new = kmalloc(logo->width * logo->height, GFP_KERNEL);
+		logo_new = kmalloc_array(logo->width, logo->height,
+					 GFP_KERNEL);
 		if (logo_new == NULL) {
 			kfree(palette);
 			if (saved_pseudo_palette)
@@ -514,8 +515,8 @@ static int fb_show_logo_line(struct fb_info *info, int rotate,
 	image.height = logo->height;
 
 	if (rotate) {
-		logo_rotate = kmalloc(logo->width *
-				      logo->height, GFP_KERNEL);
+		logo_rotate = kmalloc_array(logo->width, logo->height,
+					    GFP_KERNEL);
 		if (logo_rotate)
 			fb_rotate_logo(info, logo_rotate, &image, rotate);
 	}
@@ -1019,6 +1020,17 @@ fb_set_var(struct fb_info *info, struct fb_var_screeninfo *var)
 		if (ret)
 			goto done;
 
+		/* verify that virtual resolution >= physical resolution */
+		if (var->xres_virtual < var->xres ||
+		    var->yres_virtual < var->yres) {
+			pr_warn("WARNING: fbcon: Driver '%s' missed to adjust virtual screen size (%ux%u vs. %ux%u)\n",
+				info->fix.id,
+				var->xres_virtual, var->yres_virtual,
+				var->xres, var->yres);
+			ret = -EINVAL;
+			goto done;
+		}
+
 		if ((var->activate & FB_ACTIVATE_MASK) == FB_ACTIVATE_NOW) {
 			struct fb_var_screeninfo old_var;
 			struct fb_videomode mode;
@@ -1148,9 +1160,12 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			console_unlock();
 			return -ENODEV;
 		}
-		info->flags |= FBINFO_MISC_USEREVENT;
-		ret = fb_set_var(info, &var);
-		info->flags &= ~FBINFO_MISC_USEREVENT;
+		ret = fbcon_modechange_possible(info, &var);
+		if (!ret) {
+			info->flags |= FBINFO_MISC_USEREVENT;
+			ret = fb_set_var(info, &var);
+			info->flags &= ~FBINFO_MISC_USEREVENT;
+		}
 		unlock_fb_info(info);
 		console_unlock();
 		if (!ret && copy_to_user(argp, &var, sizeof(var)))

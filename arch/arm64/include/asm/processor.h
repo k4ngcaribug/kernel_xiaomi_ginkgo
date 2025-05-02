@@ -125,16 +125,6 @@ struct thread_struct {
 	struct debug_info	debug;		/* debugging */
 };
 
-/*
- * Everything usercopied to/from thread_struct is statically-sized, so
- * no hardened usercopy whitelist is needed.
- */
-static inline void arch_thread_struct_whitelist(unsigned long *offset,
-						unsigned long *size)
-{
-	*offset = *size = 0;
-}
-
 #ifdef CONFIG_COMPAT
 #define task_user_tls(t)						\
 ({									\
@@ -156,8 +146,9 @@ void tls_preserve_current_state(void);
 
 static inline void start_thread_common(struct pt_regs *regs, unsigned long pc)
 {
+	s32 previous_syscall = regs->syscallno;
 	memset(regs, 0, sizeof(*regs));
-	forget_syscall(regs);
+	regs->syscallno = previous_syscall;
 	regs->pc = pc;
 }
 

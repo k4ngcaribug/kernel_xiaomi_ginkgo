@@ -482,13 +482,17 @@ ENTRY(__cpu_setup)
 	 *			n	MAIR
 	 *   DEVICE_nGnRnE	000	00000000
 	 *   DEVICE_nGnRE	001	00000100
+	 *   DEVICE_GRE		010	00001100
 	 *   NORMAL_NC		011	01000100
 	 *   NORMAL		100	11111111
+	 *   NORMAL_WT		101	10111011
 	 */
 	ldr	x5, =MAIR(0x00, MT_DEVICE_nGnRnE) | \
 		     MAIR(0x04, MT_DEVICE_nGnRE) | \
+		     MAIR(0x0c, MT_DEVICE_GRE) | \
 		     MAIR(0x44, MT_NORMAL_NC) | \
-		     MAIR(0xff, MT_NORMAL)
+		     MAIR(0xff, MT_NORMAL) | \
+		     MAIR(0xbb, MT_NORMAL_WT)
 	msr	mair_el1, x5
 	/*
 	 * Prepare SCTLR
@@ -517,9 +521,17 @@ ENTRY(__cpu_setup)
 	 */
 	mrs	x9, ID_AA64MMFR1_EL1
 	and	x9, x9, #0xf
-	cbz	x9, 1f
-	orr	x10, x10, #TCR_HA		// hardware Access flag update
-1:
+	cbz	x9, 2f
+	cmp	x9, #2
+	b.lt	1f
+#ifdef CONFIG_ARM64_ERRATUM_1024718
+	/* Disable hardware DBM on Cortex-A55 all versions */
+	cpu_midr_match MIDR_CORTEX_A55, MIDR_CPU_VAR_REV(0, 0), MIDR_CPU_VAR_REV(0xf, 0xf), x1, x2, x3, x4
+	cbnz	x1, 1f
+#endif
+	orr	x10, x10, #TCR_HD		// hardware Dirty flag update
+1:	orr	x10, x10, #TCR_HA		// hardware Access flag update
+2:
 #endif	/* CONFIG_ARM64_HW_AFDBM */
 	msr	tcr_el1, x10
 	ret					// return to head.S

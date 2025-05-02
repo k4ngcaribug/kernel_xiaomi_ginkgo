@@ -728,7 +728,7 @@ static struct urb **alloc_urbs(struct snd_usb_caiaqdev *cdev, int dir, int *ret)
 		usb_sndisocpipe(usb_dev, ENDPOINT_PLAYBACK) :
 		usb_rcvisocpipe(usb_dev, ENDPOINT_CAPTURE);
 
-	urbs = kmalloc(N_URBS * sizeof(*urbs), GFP_KERNEL);
+	urbs = kmalloc_array(N_URBS, sizeof(*urbs), GFP_KERNEL);
 	if (!urbs) {
 		*ret = -ENOMEM;
 		return NULL;
@@ -742,7 +742,8 @@ static struct urb **alloc_urbs(struct snd_usb_caiaqdev *cdev, int dir, int *ret)
 		}
 
 		urbs[i]->transfer_buffer =
-			kmalloc(FRAMES_PER_URB * BYTES_PER_FRAME, GFP_KERNEL);
+			kmalloc_array(BYTES_PER_FRAME, FRAMES_PER_URB,
+				      GFP_KERNEL);
 		if (!urbs[i]->transfer_buffer) {
 			*ret = -ENOMEM;
 			return urbs;
@@ -857,7 +858,7 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 				&snd_usb_caiaq_ops);
 
 	cdev->data_cb_info =
-		kmalloc(sizeof(struct snd_usb_caiaq_cb_info) * N_URBS,
+		kmalloc_array(N_URBS, sizeof(struct snd_usb_caiaq_cb_info),
 					GFP_KERNEL);
 
 	if (!cdev->data_cb_info)
@@ -889,14 +890,20 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *cdev)
 	return 0;
 }
 
-void snd_usb_caiaq_audio_free(struct snd_usb_caiaqdev *cdev)
+void snd_usb_caiaq_audio_disconnect(struct snd_usb_caiaqdev *cdev)
 {
 	struct device *dev = caiaqdev_to_dev(cdev);
 
 	dev_dbg(dev, "%s(%p)\n", __func__, cdev);
 	stream_stop(cdev);
+}
+
+void snd_usb_caiaq_audio_free(struct snd_usb_caiaqdev *cdev)
+{
+	struct device *dev = caiaqdev_to_dev(cdev);
+
+	dev_dbg(dev, "%s(%p)\n", __func__, cdev);
 	free_urbs(cdev->data_urbs_in);
 	free_urbs(cdev->data_urbs_out);
 	kfree(cdev->data_cb_info);
 }
-

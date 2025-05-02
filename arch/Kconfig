@@ -237,6 +237,9 @@ config ARCH_HAS_FORTIFY_SOURCE
 config ARCH_HAS_SET_MEMORY
 	bool
 
+config ARCH_HAS_CPU_FINALIZE_INIT
+	bool
+
 # Select if arch init_task initializer is different to init/init_task.c
 config ARCH_INIT_TASK
        bool
@@ -333,25 +336,11 @@ config HAVE_PERF_USER_STACK_DUMP
 config HAVE_ARCH_JUMP_LABEL
 	bool
 
-config HAVE_ARCH_JUMP_LABEL_RELATIVE
+config HAVE_RCU_TABLE_FREE
 	bool
 
-config MMU_GATHER_TABLE_FREE
+config HAVE_RCU_TABLE_INVALIDATE
 	bool
-
-config MMU_GATHER_RCU_TABLE_FREE
-	bool
-	select MMU_GATHER_TABLE_FREE
-
-config MMU_GATHER_PAGE_SIZE
-	bool
-
-config MMU_GATHER_NO_RANGE
-	bool
-
-config MMU_GATHER_NO_GATHER
-	bool
-	depends on MMU_GATHER_TABLE_FREE
 
 config ARCH_WANT_IRQS_OFF_ACTIVATE_MM
 	bool
@@ -617,52 +606,6 @@ config THIN_ARCHIVES
 	  Select this if the architecture wants to use thin archives
 	  instead of ld -r to create the built-in.o files.
 
-config LD_DEAD_CODE_DATA_ELIMINATION
-	bool
-	help
-	  Select this if the architecture wants to do dead code and
-	  data elimination with the linker by compiling with
-	  -ffunction-sections -fdata-sections and linking with
-	  --gc-sections.
-
-	  This requires that the arch annotates or otherwise protects
-	  its external entry points from being discarded. Linker scripts
-	  must also merge .text.*, .data.*, and .bss.* correctly into
-	  output sections. Care must be taken not to pull in unrelated
-	  sections (e.g., '.text.init'). Typically '.' in section names
-	  is used to distinguish them from label names / C identifiers.
-
-choice
-	prompt "Kernel linker"
-	default LD_BFD if !LTO_CLANG
-	default LD_GOLD if LTO_CLANG
-	help
-	  This selects the linker that will be used to link the kernel and
-	  its composite objects.
-
-	  Note that using either ld.gold or lld is required for Clang LTO.
-	  ld.bfd will not work.
-
-config LD_BFD
-	bool "bfd"
-	depends on !LTO_CLANG
-	help
-	  Use the standard ld.bfd linker from binutils, which is usually the
-	  default. This linker does not work with Clang LTO.
-
-config LD_GOLD
-	bool "gold"
-	depends on LTO_CLANG
-	help
-	  Use the alternative ld.gold linker from binutils.
-
-config LD_LLD
-	bool "lld"
-	help
-	  Use the alternative lld linker from LLVM.
-
-endchoice
-
 config LTO
 	def_bool n
 
@@ -789,14 +732,6 @@ config SHADOW_CALL_STACK_VMAP
 	  provides better stack exhaustion protection, but increases per-thread
 	  memory consumption as a full page is allocated for each shadow stack.
 
-config LLVM_POLLY
-	bool "Enable LLVM's polyhedral loop optimizer (Polly)"
-	help
-	  This option enables LLVM's polyhedral loop optimizer known as Polly.
-	  Polly is able to optimize various loops throughout the kernel for
-	  maximum cache locality. This requires an LLVM toolchain explicitly
-	  compiled with Polly support.
-
 config HAVE_ARCH_WITHIN_STACK_FRAMES
 	bool
 	help
@@ -840,13 +775,6 @@ config HAVE_IRQ_TIME_ACCOUNTING
 	help
 	  Archs need to ensure they use a high enough resolution clock to
 	  support irq time accounting and then call enable_sched_clock_irqtime().
-
-config HAVE_MOVE_PUD
-	bool
-	help
-	  Architectures that select this are able to move page tables at the
-	  PUD level. If there are only 3 page table levels, the move effectively
-	  happens at the PGD level.
 
 config HAVE_MOVE_PMD
 	bool
@@ -1142,16 +1070,6 @@ config STRICT_MODULE_RWX
 	  and non-text memory will be made non-executable. This provides
 	  protection against certain security exploits (e.g. writing to text)
 
-config ARCH_HAS_REFCOUNT_FULL
-	bool
-	select ARCH_HAS_REFCOUNT
-	help
-	  An architecture selects this when the optimized refcount_t
-	  implementation it provides covers all the cases that
-	  CONFIG_REFCOUNT_FULL covers as well, in which case it makes no
-	  sense to even offer CONFIG_REFCOUNT_FULL as a user selectable
-	  option.
-
 config ARCH_HAS_REFCOUNT
 	bool
 	help
@@ -1165,7 +1083,7 @@ config ARCH_HAS_REFCOUNT
 	  against bugs in reference counts.
 
 config REFCOUNT_FULL
-	bool "Perform full reference count validation at the expense of speed" if !ARCH_HAS_REFCOUNT_FULL
+	bool "Perform full reference count validation at the expense of speed"
 	help
 	  Enabling this switches the refcounting infrastructure from a fast
 	  unchecked atomic_t implementation to a fully state checked
@@ -1190,6 +1108,9 @@ config HAVE_ARCH_COMPILER_H
 	  linux/compiler-*.h in order to override macro definitions that those
 	  headers generally provide.
 
+config ARCH_USE_MEMREMAP_PROT
+	bool
+
 # Select if the architecture has support for applying RELR relocations.
 config ARCH_HAS_RELR
 	bool
@@ -1203,5 +1124,14 @@ config RELR
 	  format. Requires a compatible linker (LLD supports this feature), as
 	  well as compatible NM and OBJCOPY utilities (llvm-nm and llvm-objcopy
 	  are compatible).
+
+config ARCH_HAS_NONLEAF_PMD_YOUNG
+	bool
+	depends on PGTABLE_LEVELS > 2
+	help
+	  Architectures that select this option are capable of setting the
+	  accessed bit in non-leaf PMD entries when using them as part of linear
+	  address translations. Page table walkers that clear the accessed bit
+	  may use this capability to reduce their search space.
 
 source "kernel/gcov/Kconfig"

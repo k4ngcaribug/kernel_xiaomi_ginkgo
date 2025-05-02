@@ -309,7 +309,7 @@ int kbd_rate(struct kbd_repeat *rpt)
 static void put_queue(struct vc_data *vc, int ch)
 {
 	tty_insert_flip_char(&vc->port, ch, 0);
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void puts_queue(struct vc_data *vc, char *cp)
@@ -318,7 +318,7 @@ static void puts_queue(struct vc_data *vc, char *cp)
 		tty_insert_flip_char(&vc->port, *cp, 0);
 		cp++;
 	}
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void applkey(struct vc_data *vc, int key, char mode)
@@ -563,7 +563,7 @@ static void fn_inc_console(struct vc_data *vc)
 static void fn_send_intr(struct vc_data *vc)
 {
 	tty_insert_flip_char(&vc->port, 0, TTY_BREAK);
-	tty_schedule_flip(&vc->port);
+	tty_flip_buffer_push(&vc->port);
 }
 
 static void fn_scroll_forw(struct vc_data *vc)
@@ -1635,7 +1635,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 		struct kbdiacr *dia;
 		int i;
 
-		dia = kmalloc(MAX_DIACR * sizeof(struct kbdiacr),
+		dia = kmalloc_array(MAX_DIACR, sizeof(struct kbdiacr),
 								GFP_KERNEL);
 		if (!dia)
 			return -ENOMEM;
@@ -1668,7 +1668,7 @@ int vt_do_diacrit(unsigned int cmd, void __user *udp, int perm)
 		struct kbdiacrsuc __user *a = udp;
 		void *buf;
 
-		buf = kmalloc(MAX_DIACR * sizeof(struct kbdiacruc),
+		buf = kmalloc_array(MAX_DIACR, sizeof(struct kbdiacruc),
 								GFP_KERNEL);
 		if (buf == NULL)
 			return -ENOMEM;

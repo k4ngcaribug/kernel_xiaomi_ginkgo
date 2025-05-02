@@ -31,8 +31,8 @@
 #include <linux/compiler.h>
 #include <linux/llist.h>
 #include <linux/bitops.h>
-#include <linux/overflow.h>
 #include <linux/rbtree_augmented.h>
+#include <linux/overflow.h>
 
 #include <linux/uaccess.h>
 #include <asm/tlbflush.h>
@@ -325,10 +325,6 @@ EXPORT_SYMBOL(vmalloc_to_pfn);
 
 /*** Global kva allocator ***/
 
-#define DEBUG_AUGMENT_PROPAGATE_CHECK 0
-#define DEBUG_AUGMENT_LOWEST_MATCH_CHECK 0
-
-
 static DEFINE_SPINLOCK(vmap_area_lock);
 static DEFINE_SPINLOCK(free_vmap_area_lock);
 /* Export for kexec only */
@@ -396,8 +392,9 @@ compute_subtree_max_size(struct vmap_area *va)
 		get_subtree_max_size(va->rb_node.rb_right));
 }
 
-RB_DECLARE_CALLBACKS_MAX(static, free_vmap_area_rb_augment_cb,
-	struct vmap_area, rb_node, unsigned long, subtree_max_size, va_size)
+RB_DECLARE_CALLBACKS(static, free_vmap_area_rb_augment_cb,
+	struct vmap_area, rb_node, unsigned long, subtree_max_size,
+	compute_subtree_max_size)
 
 static void purge_vmap_area_lazy(void);
 static BLOCKING_NOTIFIER_HEAD(vmap_notify_list);
@@ -602,48 +599,6 @@ unlink_va(struct vmap_area *va, struct rb_root *root)
 	RB_CLEAR_NODE(&va->rb_node);
 }
 
-#if DEBUG_AUGMENT_PROPAGATE_CHECK
-static void
-augment_tree_propagate_check(struct rb_node *n)
-{
-	struct vmap_area *va;
-	struct rb_node *node;
-	unsigned long size;
-	bool found = false;
-
-	if (n == NULL)
-		return;
-
-	va = rb_entry(n, struct vmap_area, rb_node);
-	size = va->subtree_max_size;
-	node = n;
-
-	while (node) {
-		va = rb_entry(node, struct vmap_area, rb_node);
-
-		if (get_subtree_max_size(node->rb_left) == size) {
-			node = node->rb_left;
-		} else {
-			if (va_size(va) == size) {
-				found = true;
-				break;
-			}
-
-			node = node->rb_right;
-		}
-	}
-
-	if (!found) {
-		va = rb_entry(n, struct vmap_area, rb_node);
-		pr_emerg("tree is corrupted: %lu, %lu\n",
-			va_size(va), va->subtree_max_size);
-	}
-
-	augment_tree_propagate_check(n->rb_left);
-	augment_tree_propagate_check(n->rb_right);
-}
-#endif
-
 /*
  * This function populates subtree_max_size from bottom to upper
  * levels starting from VA point. The propagation must be done
@@ -693,10 +648,6 @@ augment_tree_propagate_from(struct vmap_area *va)
 		va->subtree_max_size = new_va_sub_max_size;
 		node = rb_parent(&va->rb_node);
 	}
-
-#if DEBUG_AUGMENT_PROPAGATE_CHECK
-	augment_tree_propagate_check(free_vmap_area_root.rb_node);
-#endif
 }
 
 static void
@@ -870,7 +821,7 @@ find_vmap_lowest_match(unsigned long size,
 			}
 
 			/*
-			 * OK. We roll back and find the first right sub-tree,
+			 * OK. We roll back and find the fist right sub-tree,
 			 * that will satisfy the search criteria. It can happen
 			 * only once due to "vstart" restriction.
 			 */
@@ -890,44 +841,6 @@ find_vmap_lowest_match(unsigned long size,
 
 	return NULL;
 }
-
-#if DEBUG_AUGMENT_LOWEST_MATCH_CHECK
-#include <linux/random.h>
-
-static struct vmap_area *
-find_vmap_lowest_linear_match(unsigned long size,
-	unsigned long align, unsigned long vstart)
-{
-	struct vmap_area *va;
-
-	list_for_each_entry(va, &free_vmap_area_list, list) {
-		if (!is_within_this_va(va, size, align, vstart))
-			continue;
-
-		return va;
-	}
-
-	return NULL;
-}
-
-static void
-find_vmap_lowest_match_check(unsigned long size)
-{
-	struct vmap_area *va_1, *va_2;
-	unsigned long vstart;
-	unsigned int rnd;
-
-	get_random_bytes(&rnd, sizeof(rnd));
-	vstart = VMALLOC_START + rnd;
-
-	va_1 = find_vmap_lowest_match(size, 1, vstart);
-	va_2 = find_vmap_lowest_linear_match(size, 1, vstart);
-
-	if (va_1 != va_2)
-		pr_emerg("not lowest: t: 0x%p, l: 0x%p, v: 0x%lx\n",
-			va_1, va_2, vstart);
-}
-#endif
 
 enum fit_type {
 	NOTHING_FIT = 0,
@@ -968,7 +881,7 @@ adjust_va_to_fit_type(struct vmap_area *va,
 	unsigned long nva_start_addr, unsigned long size,
 	enum fit_type type)
 {
-	struct vmap_area *lva = NULL;
+	struct vmap_area *lva;
 
 	if (type == FL_FIT_TYPE) {
 		/*
@@ -1055,7 +968,7 @@ adjust_va_to_fit_type(struct vmap_area *va,
 	if (type != FL_FIT_TYPE) {
 		augment_tree_propagate_from(va);
 
-		if (lva)	/* type == NE_FIT_TYPE */
+		if (type == NE_FIT_TYPE)
 			insert_vmap_area_augment(lva, &va->rb_node,
 				&free_vmap_area_root, &free_vmap_area_list);
 	}
@@ -1098,10 +1011,6 @@ __alloc_vmap_area(unsigned long size, unsigned long align,
 	ret = adjust_va_to_fit_type(va, nva_start_addr, size, type);
 	if (ret)
 		return vend;
-
-#if DEBUG_AUGMENT_LOWEST_MATCH_CHECK
-	find_vmap_lowest_match_check(size);
-#endif
 
 	return nva_start_addr;
 }
@@ -2012,12 +1921,11 @@ void __init vmalloc_init(void)
 		insert_vmap_area(va, &vmap_area_root, &vmap_area_list);
 	}
 
-	calc_total_vmalloc_size();
-
 	/*
 	 * Now we can initialize a free vmap space.
 	 */
 	vmap_init_free_space();
+	calc_total_vmalloc_size();
 	vmap_initialized = true;
 }
 
@@ -2176,13 +2084,13 @@ struct vm_struct *__get_vm_area_caller(unsigned long size, unsigned long flags,
 }
 
 /**
- *	get_vm_area  -  reserve a contiguous kernel virtual area
- *	@size:		size of the area
- *	@flags:		%VM_IOREMAP for I/O mappings or VM_ALLOC
+ * get_vm_area - reserve a contiguous kernel virtual area
+ * @size:	 size of the area
+ * @flags:	 %VM_IOREMAP for I/O mappings or VM_ALLOC
  *
- *	Search an area of @size in the kernel virtual mapping area,
- *	and reserved it for out purposes.  Returns the area descriptor
- *	on success or %NULL on failure.
+ * Search an area of @size in the kernel virtual mapping area,
+ * and reserved it for out purposes.  Returns the area descriptor
+ * on success or %NULL on failure.
  */
 struct vm_struct *get_vm_area(unsigned long size, unsigned long flags)
 {
@@ -2210,12 +2118,12 @@ struct vm_struct *get_vm_area_caller(unsigned long size, unsigned long flags,
 }
 
 /**
- *	find_vm_area  -  find a continuous kernel virtual area
- *	@addr:		base address
+ * find_vm_area - find a continuous kernel virtual area
+ * @addr:	  base address
  *
- *	Search for the kernel VM area starting at @addr, and return it.
- *	It is up to the caller to do all required locking to keep the returned
- *	pointer valid.
+ * Search for the kernel VM area starting at @addr, and return it.
+ * It is up to the caller to do all required locking to keep the returned
+ * pointer valid.
  */
 struct vm_struct *find_vm_area(const void *addr)
 {
@@ -2229,12 +2137,12 @@ struct vm_struct *find_vm_area(const void *addr)
 }
 
 /**
- *	remove_vm_area  -  find and remove a continuous kernel virtual area
- *	@addr:		base address
+ * remove_vm_area - find and remove a continuous kernel virtual area
+ * @addr:	    base address
  *
- *	Search for the kernel VM area starting at @addr, and remove it.
- *	This function returns the found VM area, but using it is NOT safe
- *	on SMP machines, except for its size or flags.
+ * Search for the kernel VM area starting at @addr, and remove it.
+ * This function returns the found VM area, but using it is NOT safe
+ * on SMP machines, except for its size or flags.
  */
 struct vm_struct *remove_vm_area(const void *addr)
 {
@@ -2315,11 +2223,11 @@ static inline void __vfree_deferred(const void *addr)
 }
 
 /**
- *	vfree_atomic  -  release memory allocated by vmalloc()
- *	@addr:		memory base address
+ * vfree_atomic - release memory allocated by vmalloc()
+ * @addr:	  memory base address
  *
- *	This one is just like vfree() but can be called in any atomic context
- *	except NMIs.
+ * This one is just like vfree() but can be called in any atomic context
+ * except NMIs.
  */
 void vfree_atomic(const void *addr)
 {
@@ -2341,20 +2249,20 @@ static void __vfree(const void *addr)
 }
 
 /**
- *	vfree  -  release memory allocated by vmalloc()
- *	@addr:		memory base address
+ * vfree - release memory allocated by vmalloc()
+ * @addr:  memory base address
  *
- *	Free the virtually continuous memory area starting at @addr, as
- *	obtained from vmalloc(), vmalloc_32() or __vmalloc(). If @addr is
- *	NULL, no operation is performed.
+ * Free the virtually continuous memory area starting at @addr, as
+ * obtained from vmalloc(), vmalloc_32() or __vmalloc(). If @addr is
+ * NULL, no operation is performed.
  *
- *	Must not be called in NMI context (strictly speaking, only if we don't
- *	have CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG, but making the calling
- *	conventions for vfree() arch-depenedent would be a really bad idea)
+ * Must not be called in NMI context (strictly speaking, only if we don't
+ * have CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG, but making the calling
+ * conventions for vfree() arch-depenedent would be a really bad idea)
  *
- *	May sleep if called *not* from interrupt context.
+ * May sleep if called *not* from interrupt context.
  *
- *	NOTE: assumes that the object at @addr has a size >= sizeof(llist_node)
+ * NOTE: assumes that the object at @addr has a size >= sizeof(llist_node)
  */
 void vfree(const void *addr)
 {
@@ -2372,13 +2280,13 @@ void vfree(const void *addr)
 EXPORT_SYMBOL(vfree);
 
 /**
- *	vunmap  -  release virtual mapping obtained by vmap()
- *	@addr:		memory base address
+ * vunmap - release virtual mapping obtained by vmap()
+ * @addr:   memory base address
  *
- *	Free the virtually contiguous memory area starting at @addr,
- *	which was created from the page array passed to vmap().
+ * Free the virtually contiguous memory area starting at @addr,
+ * which was created from the page array passed to vmap().
  *
- *	Must not be called in interrupt context.
+ * Must not be called in interrupt context.
  */
 void vunmap(const void *addr)
 {
@@ -2390,17 +2298,17 @@ void vunmap(const void *addr)
 EXPORT_SYMBOL(vunmap);
 
 /**
- *	vmap  -  map an array of pages into virtually contiguous space
- *	@pages:		array of page pointers
- *	@count:		number of pages to map
- *	@flags:		vm_area->flags
- *	@prot:		page protection for the mapping
+ * vmap - map an array of pages into virtually contiguous space
+ * @pages: array of page pointers
+ * @count: number of pages to map
+ * @flags: vm_area->flags
+ * @prot: page protection for the mapping
  *
- *	Maps @count pages from @pages into contiguous kernel virtual
- *	space.
+ * Maps @count pages from @pages into contiguous kernel virtual
+ * space.
  */
 void *vmap(struct page **pages, unsigned int count,
-		unsigned long flags, pgprot_t prot)
+	   unsigned long flags, pgprot_t prot)
 {
 	struct vm_struct *area;
 	unsigned long size;		/* In bytes */
@@ -2473,7 +2381,7 @@ static void *__vmalloc_area_node(struct vm_struct *area, gfp_t gfp_mask,
 			goto fail;
 		}
 		area->pages[i] = page;
-		if (gfpflags_allow_blocking(gfp_mask|highmem_mask))
+		if (gfpflags_allow_blocking(gfp_mask))
 			cond_resched();
 	}
 	atomic_long_add(area->nr_pages, &nr_vmalloc_pages);
@@ -2491,20 +2399,20 @@ fail:
 }
 
 /**
- *	__vmalloc_node_range  -  allocate virtually contiguous memory
- *	@size:		allocation size
- *	@align:		desired alignment
- *	@start:		vm area range start
- *	@end:		vm area range end
- *	@gfp_mask:	flags for the page level allocator
- *	@prot:		protection mask for the allocated pages
- *	@vm_flags:	additional vm area flags (e.g. %VM_NO_GUARD)
- *	@node:		node to use for allocation or NUMA_NO_NODE
- *	@caller:	caller's return address
+ * __vmalloc_node_range - allocate virtually contiguous memory
+ * @size:		  allocation size
+ * @align:		  desired alignment
+ * @start:		  vm area range start
+ * @end:		  vm area range end
+ * @gfp_mask:		  flags for the page level allocator
+ * @prot:		  protection mask for the allocated pages
+ * @vm_flags:		  additional vm area flags (e.g. %VM_NO_GUARD)
+ * @node:		  node to use for allocation or NUMA_NO_NODE
+ * @caller:		  caller's return address
  *
- *	Allocate enough pages to cover @size from the page level
- *	allocator with @gfp_mask flags.  Map them into contiguous
- *	kernel virtual space, using a pagetable protection of @prot.
+ * Allocate enough pages to cover @size from the page level
+ * allocator with @gfp_mask flags.  Map them into contiguous
+ * kernel virtual space, using a pagetable protection of @prot.
  */
 void *__vmalloc_node_range(unsigned long size, unsigned long align,
 			unsigned long start, unsigned long end, gfp_t gfp_mask,
@@ -2551,34 +2459,24 @@ fail:
 	return NULL;
 }
 
-/*
- * This is only for performance analysis of vmalloc and stress purpose.
- * It is required by vmalloc test module, therefore do not use it other
- * than that.
- */
-#ifdef CONFIG_TEST_VMALLOC_MODULE
-EXPORT_SYMBOL_GPL(__vmalloc_node_range);
-#endif
-
 /**
- *	__vmalloc_node  -  allocate virtually contiguous memory
- *	@size:		allocation size
- *	@align:		desired alignment
- *	@gfp_mask:	flags for the page level allocator
- *	@prot:		protection mask for the allocated pages
- *	@node:		node to use for allocation or NUMA_NO_NODE
- *	@caller:	caller's return address
+ * __vmalloc_node - allocate virtually contiguous memory
+ * @size:	    allocation size
+ * @align:	    desired alignment
+ * @gfp_mask:	    flags for the page level allocator
+ * @prot:	    protection mask for the allocated pages
+ * @node:	    node to use for allocation or NUMA_NO_NODE
+ * @caller:	    caller's return address
  *
- *	Allocate enough pages to cover @size from the page level
- *	allocator with @gfp_mask flags.  Map them into contiguous
- *	kernel virtual space, using a pagetable protection of @prot.
+ * Allocate enough pages to cover @size from the page level
+ * allocator with @gfp_mask flags.  Map them into contiguous
+ * kernel virtual space, using a pagetable protection of @prot.
  *
- *	Reclaim modifiers in @gfp_mask - __GFP_NORETRY, __GFP_RETRY_MAYFAIL
- *	and __GFP_NOFAIL are not supported
+ * Reclaim modifiers in @gfp_mask - __GFP_NORETRY, __GFP_RETRY_MAYFAIL
+ * and __GFP_NOFAIL are not supported
  *
- *	Any use of gfp flags outside of GFP_KERNEL should be consulted
- *	with mm people.
- *
+ * Any use of gfp flags outside of GFP_KERNEL should be consulted
+ * with mm people.
  */
 static void *__vmalloc_node(unsigned long size, unsigned long align,
 			    gfp_t gfp_mask, pgprot_t prot,
@@ -2610,13 +2508,14 @@ void *__vmalloc_node_flags_caller(unsigned long size, int node, gfp_t flags,
 }
 
 /**
- *	vmalloc  -  allocate virtually contiguous memory
- *	@size:		allocation size
- *	Allocate enough pages to cover @size from the page level
- *	allocator and map them into contiguous kernel virtual space.
+ * vmalloc - allocate virtually contiguous memory
+ * @size:    allocation size
  *
- *	For tight control over page level allocator and protection flags
- *	use __vmalloc() instead.
+ * Allocate enough pages to cover @size from the page level
+ * allocator and map them into contiguous kernel virtual space.
+ *
+ * For tight control over page level allocator and protection flags
+ * use __vmalloc() instead.
  */
 void *vmalloc(unsigned long size)
 {
@@ -2626,14 +2525,15 @@ void *vmalloc(unsigned long size)
 EXPORT_SYMBOL(vmalloc);
 
 /**
- *	vzalloc - allocate virtually contiguous memory with zero fill
- *	@size:	allocation size
- *	Allocate enough pages to cover @size from the page level
- *	allocator and map them into contiguous kernel virtual space.
- *	The memory allocated is set to zero.
+ * vzalloc - allocate virtually contiguous memory with zero fill
+ * @size:    allocation size
  *
- *	For tight control over page level allocator and protection flags
- *	use __vmalloc() instead.
+ * Allocate enough pages to cover @size from the page level
+ * allocator and map them into contiguous kernel virtual space.
+ * The memory allocated is set to zero.
+ *
+ * For tight control over page level allocator and protection flags
+ * use __vmalloc() instead.
  */
 void *vzalloc(unsigned long size)
 {
@@ -2659,15 +2559,15 @@ void *vmalloc_user(unsigned long size)
 EXPORT_SYMBOL(vmalloc_user);
 
 /**
- *	vmalloc_node  -  allocate memory on a specific node
- *	@size:		allocation size
- *	@node:		numa node
+ * vmalloc_node - allocate memory on a specific node
+ * @size:	  allocation size
+ * @node:	  numa node
  *
- *	Allocate enough pages to cover @size from the page level
- *	allocator and map them into contiguous kernel virtual space.
+ * Allocate enough pages to cover @size from the page level
+ * allocator and map them into contiguous kernel virtual space.
  *
- *	For tight control over page level allocator and protection flags
- *	use __vmalloc() instead.
+ * For tight control over page level allocator and protection flags
+ * use __vmalloc() instead.
  */
 void *vmalloc_node(unsigned long size, int node)
 {
@@ -2696,17 +2596,16 @@ void *vzalloc_node(unsigned long size, int node)
 EXPORT_SYMBOL(vzalloc_node);
 
 /**
- *	vmalloc_exec  -  allocate virtually contiguous, executable memory
- *	@size:		allocation size
+ * vmalloc_exec - allocate virtually contiguous, executable memory
+ * @size:	  allocation size
  *
- *	Kernel-internal function to allocate enough pages to cover @size
- *	the page level allocator and map them into contiguous and
- *	executable kernel virtual space.
+ * Kernel-internal function to allocate enough pages to cover @size
+ * the page level allocator and map them into contiguous and
+ * executable kernel virtual space.
  *
- *	For tight control over page level allocator and protection flags
- *	use __vmalloc() instead.
+ * For tight control over page level allocator and protection flags
+ * use __vmalloc() instead.
  */
-
 void *vmalloc_exec(unsigned long size)
 {
 	return __vmalloc_node(size, 1, GFP_KERNEL, PAGE_KERNEL_EXEC,
@@ -2726,11 +2625,11 @@ void *vmalloc_exec(unsigned long size)
 #endif
 
 /**
- *	vmalloc_32  -  allocate virtually contiguous memory (32bit addressable)
- *	@size:		allocation size
+ * vmalloc_32 - allocate virtually contiguous memory (32bit addressable)
+ * @size:	allocation size
  *
- *	Allocate enough 32bit PA addressable pages to cover @size from the
- *	page level allocator and map them into contiguous kernel virtual space.
+ * Allocate enough 32bit PA addressable pages to cover @size from the
+ * page level allocator and map them into contiguous kernel virtual space.
  */
 void *vmalloc_32(unsigned long size)
 {
@@ -2741,7 +2640,7 @@ EXPORT_SYMBOL(vmalloc_32);
 
 /**
  * vmalloc_32_user - allocate zeroed virtually contiguous 32bit memory
- *	@size:		allocation size
+ * @size:	     allocation size
  *
  * The resulting memory area is 32bit addressable and zeroed so it can be
  * mapped to userspace without leaking data.
@@ -2837,31 +2736,29 @@ static int aligned_vwrite(char *buf, char *addr, unsigned long count)
 }
 
 /**
- *	vread() -  read vmalloc area in a safe way.
- *	@buf:		buffer for reading data
- *	@addr:		vm address.
- *	@count:		number of bytes to be read.
+ * vread() - read vmalloc area in a safe way.
+ * @buf:     buffer for reading data
+ * @addr:    vm address.
+ * @count:   number of bytes to be read.
  *
- *	Returns # of bytes which addr and buf should be increased.
- *	(same number to @count). Returns 0 if [addr...addr+count) doesn't
- *	includes any intersect with alive vmalloc area.
+ * Returns # of bytes which addr and buf should be increased.
+ * (same number to @count). Returns 0 if [addr...addr+count) doesn't
+ * includes any intersect with alive vmalloc area.
  *
- *	This function checks that addr is a valid vmalloc'ed area, and
- *	copy data from that area to a given buffer. If the given memory range
- *	of [addr...addr+count) includes some valid address, data is copied to
- *	proper area of @buf. If there are memory holes, they'll be zero-filled.
- *	IOREMAP area is treated as memory hole and no copy is done.
+ * This function checks that addr is a valid vmalloc'ed area, and
+ * copy data from that area to a given buffer. If the given memory range
+ * of [addr...addr+count) includes some valid address, data is copied to
+ * proper area of @buf. If there are memory holes, they'll be zero-filled.
+ * IOREMAP area is treated as memory hole and no copy is done.
  *
- *	If [addr...addr+count) doesn't includes any intersects with alive
- *	vm_struct area, returns 0. @buf should be kernel's buffer.
+ * If [addr...addr+count) doesn't includes any intersects with alive
+ * vm_struct area, returns 0. @buf should be kernel's buffer.
  *
- *	Note: In usual ops, vread() is never necessary because the caller
- *	should know vmalloc() area is valid and can use memcpy().
- *	This is for routines which have to access vmalloc area without
- *	any informaion, as /dev/kmem.
- *
+ * Note: In usual ops, vread() is never necessary because the caller
+ * should know vmalloc() area is valid and can use memcpy().
+ * This is for routines which have to access vmalloc area without
+ * any informaion, as /dev/kmem.
  */
-
 long vread(char *buf, char *addr, unsigned long count)
 {
 	struct vmap_area *va;
@@ -2918,31 +2815,30 @@ finished:
 }
 
 /**
- *	vwrite() -  write vmalloc area in a safe way.
- *	@buf:		buffer for source data
- *	@addr:		vm address.
- *	@count:		number of bytes to be read.
+ * vwrite() - write vmalloc area in a safe way.
+ * @buf:      buffer for source data
+ * @addr:     vm address.
+ * @count:    number of bytes to be read.
  *
- *	Returns # of bytes which addr and buf should be incresed.
- *	(same number to @count).
- *	If [addr...addr+count) doesn't includes any intersect with valid
- *	vmalloc area, returns 0.
+ * Returns # of bytes which addr and buf should be incresed.
+ * (same number to @count).
+ * If [addr...addr+count) doesn't includes any intersect with valid
+ * vmalloc area, returns 0.
  *
- *	This function checks that addr is a valid vmalloc'ed area, and
- *	copy data from a buffer to the given addr. If specified range of
- *	[addr...addr+count) includes some valid address, data is copied from
- *	proper area of @buf. If there are memory holes, no copy to hole.
- *	IOREMAP area is treated as memory hole and no copy is done.
+ * This function checks that addr is a valid vmalloc'ed area, and
+ * copy data from a buffer to the given addr. If specified range of
+ * [addr...addr+count) includes some valid address, data is copied from
+ * proper area of @buf. If there are memory holes, no copy to hole.
+ * IOREMAP area is treated as memory hole and no copy is done.
  *
- *	If [addr...addr+count) doesn't includes any intersects with alive
- *	vm_struct area, returns 0. @buf should be kernel's buffer.
+ * If [addr...addr+count) doesn't includes any intersects with alive
+ * vm_struct area, returns 0. @buf should be kernel's buffer.
  *
- *	Note: In usual ops, vwrite() is never necessary because the caller
- *	should know vmalloc() area is valid and can use memcpy().
- *	This is for routines which have to access vmalloc area without
- *	any informaion, as /dev/kmem.
+ * Note: In usual ops, vwrite() is never necessary because the caller
+ * should know vmalloc() area is valid and can use memcpy().
+ * This is for routines which have to access vmalloc area without
+ * any informaion, as /dev/kmem.
  */
-
 long vwrite(char *buf, char *addr, unsigned long count)
 {
 	struct vmap_area *va;
@@ -2994,21 +2890,21 @@ finished:
 }
 
 /**
- *	remap_vmalloc_range_partial  -  map vmalloc pages to userspace
- *	@vma:		vma to cover
- *	@uaddr:		target user address to start at
- *	@kaddr:		virtual address of vmalloc kernel memory
- *	@pgoff:		offset from @kaddr to start at
- *	@size:		size of map area
+ * remap_vmalloc_range_partial - map vmalloc pages to userspace
+ * @vma:		vma to cover
+ * @uaddr:		target user address to start at
+ * @kaddr:		virtual address of vmalloc kernel memory
+ * @pgoff:		offset from @kaddr to start at
+ * @size:		size of map area
  *
- *	Returns:	0 for success, -Exxx on failure
+ * Returns:	0 for success, -Exxx on failure
  *
- *	This function checks that @kaddr is a valid vmalloc'ed area,
- *	and that it is big enough to cover the range starting at
- *	@uaddr in @vma. Will return failure if that criteria isn't
- *	met.
+ * This function checks that @kaddr is a valid vmalloc'ed area,
+ * and that it is big enough to cover the range starting at
+ * @uaddr in @vma. Will return failure if that criteria isn't
+ * met.
  *
- *	Similar to remap_pfn_range() (see mm/memory.c)
+ * Similar to remap_pfn_range() (see mm/memory.c)
  */
 int remap_vmalloc_range_partial(struct vm_area_struct *vma, unsigned long uaddr,
 				void *kaddr, unsigned long pgoff,
@@ -3058,18 +2954,18 @@ int remap_vmalloc_range_partial(struct vm_area_struct *vma, unsigned long uaddr,
 EXPORT_SYMBOL(remap_vmalloc_range_partial);
 
 /**
- *	remap_vmalloc_range  -  map vmalloc pages to userspace
- *	@vma:		vma to cover (map full range of vma)
- *	@addr:		vmalloc memory
- *	@pgoff:		number of pages into addr before first page to map
+ * remap_vmalloc_range - map vmalloc pages to userspace
+ * @vma:		vma to cover (map full range of vma)
+ * @addr:		vmalloc memory
+ * @pgoff:		number of pages into addr before first page to map
  *
- *	Returns:	0 for success, -Exxx on failure
+ * Returns:	0 for success, -Exxx on failure
  *
- *	This function checks that addr is a valid vmalloc'ed area, and
- *	that it is big enough to cover the vma. Will return failure if
- *	that criteria isn't met.
+ * This function checks that addr is a valid vmalloc'ed area, and
+ * that it is big enough to cover the vma. Will return failure if
+ * that criteria isn't met.
  *
- *	Similar to remap_pfn_range() (see mm/memory.c)
+ * Similar to remap_pfn_range() (see mm/memory.c)
  */
 int remap_vmalloc_range(struct vm_area_struct *vma, void *addr,
 						unsigned long pgoff)
@@ -3107,18 +3003,18 @@ static int f(pte_t *pte, pgtable_t table, unsigned long addr, void *data)
 }
 
 /**
- *	alloc_vm_area - allocate a range of kernel address space
- *	@size:		size of the area
- *	@ptes:		returns the PTEs for the address space
+ * alloc_vm_area - allocate a range of kernel address space
+ * @size:	   size of the area
+ * @ptes:	   returns the PTEs for the address space
  *
- *	Returns:	NULL on failure, vm_struct on success
+ * Returns:	NULL on failure, vm_struct on success
  *
- *	This function reserves a range of kernel address space, and
- *	allocates pagetables to map that range.  No actual mappings
- *	are created.
+ * This function reserves a range of kernel address space, and
+ * allocates pagetables to map that range.  No actual mappings
+ * are created.
  *
- *	If @ptes is non-NULL, pointers to the PTEs (in init_mm)
- *	allocated for the VM area are returned.
+ * If @ptes is non-NULL, pointers to the PTEs (in init_mm)
+ * allocated for the VM area are returned.
  */
 struct vm_struct *alloc_vm_area(size_t size, pte_t **ptes)
 {
@@ -3613,10 +3509,9 @@ static const struct file_operations proc_vmalloc_operations = {
 
 static int __init proc_vmalloc_init(void)
 {
-	proc_create("vmallocinfo", S_IRUSR, NULL, &proc_vmalloc_operations);
+	proc_create("vmallocinfo", 0400, NULL, &proc_vmalloc_operations);
 	return 0;
 }
 module_init(proc_vmalloc_init);
 
 #endif
-

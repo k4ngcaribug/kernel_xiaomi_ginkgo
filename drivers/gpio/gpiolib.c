@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/nospec.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
 #include <linux/device.h>
@@ -61,6 +62,16 @@ static struct bus_type gpio_bus_type = {
 	.name = "gpio",
 };
 
+/*
+ * Number of GPIOs to use for the fast path in set array
+ */
+#define FASTPATH_NGPIO CONFIG_GPIOLIB_FASTPATH_LIMIT
+
+/*
+ * Number of GPIOs to use for the fast path in set array
+ */
+#define FASTPATH_NGPIO CONFIG_GPIOLIB_FASTPATH_LIMIT
+
 /* gpio_lock prevents conflicts during gpio_desc[] table updates.
  * While any GPIO is requested, its gpio_chip is not removable;
  * each GPIO's "requested" flag serves as a lock and refcount.
@@ -108,6 +119,9 @@ struct gpio_desc *gpio_to_desc(unsigned gpio)
 
 	spin_unlock_irqrestore(&gpio_lock, flags);
 
+	if (!gpio_is_valid(gpio))
+		WARN(1, "invalid GPIO %d\n", gpio);
+
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(gpio_to_desc);
@@ -130,7 +144,7 @@ struct gpio_desc *gpiochip_get_desc(struct gpio_chip *chip,
 	if (hwnum >= gdev->ngpio)
 		return ERR_PTR(-EINVAL);
 
-	return &gdev->descs[hwnum];
+	return &gdev->descs[array_index_nospec(hwnum, gdev->ngpio)];
 }
 
 /**
@@ -401,12 +415,11 @@ static long linehandle_ioctl(struct file *filep, unsigned int cmd,
 			vals[i] = !!ghd.values[i];
 
 		/* Reuse the array setting function */
-		gpiod_set_array_value_complex(false,
+		return gpiod_set_array_value_complex(false,
 					      true,
 					      lh->numdescs,
 					      lh->descs,
 					      vals);
-		return 0;
 	}
 	return -EINVAL;
 }
@@ -1191,6 +1204,10 @@ int gpiochip_add_data(struct gpio_chip *chip, void *data)
 		status = -EINVAL;
 		goto err_free_descs;
 	}
+
+	if (chip->ngpio > FASTPATH_NGPIO)
+		chip_warn(chip, "line cnt %u is greater than fast path cnt %u\n",
+		chip->ngpio, FASTPATH_NGPIO);
 
 	if (chip->label)
 		gdev->label = kstrdup(chip->label, GFP_KERNEL);
@@ -2617,7 +2634,7 @@ static void gpio_chip_set_multiple(struct gpio_chip *chip,
 	}
 }
 
-void gpiod_set_array_value_complex(bool raw, bool can_sleep,
+int gpiod_set_array_value_complex(bool raw, bool can_sleep,
 				   unsigned int array_size,
 				   struct gpio_desc **desc_array,
 				   int *value_array)
@@ -2626,14 +2643,26 @@ void gpiod_set_array_value_complex(bool raw, bool can_sleep,
 
 	while (i < array_size) {
 		struct gpio_chip *chip = desc_array[i]->gdev->chip;
-		unsigned long mask[BITS_TO_LONGS(chip->ngpio)];
-		unsigned long bits[BITS_TO_LONGS(chip->ngpio)];
+		unsigned long fastpath[2 * BITS_TO_LONGS(FASTPATH_NGPIO)];
+		unsigned long *mask, *bits;
 		int count = 0;
+
+		if (likely(chip->ngpio <= FASTPATH_NGPIO)) {
+			mask = fastpath;
+		} else {
+			mask = kmalloc_array(2 * BITS_TO_LONGS(chip->ngpio),
+					   sizeof(*mask),
+					   can_sleep ? GFP_KERNEL : GFP_ATOMIC);
+			if (!mask)
+				return -ENOMEM;
+		}
+
+		bits = mask + BITS_TO_LONGS(chip->ngpio);
+		bitmap_zero(mask, chip->ngpio);
 
 		if (!can_sleep)
 			WARN_ON(chip->can_sleep);
 
-		memset(mask, 0, sizeof(mask));
 		do {
 			struct gpio_desc *desc = desc_array[i];
 			int hwgpio = gpio_chip_hwgpio(desc);
@@ -2664,7 +2693,11 @@ void gpiod_set_array_value_complex(bool raw, bool can_sleep,
 		/* push collected bits to outputs */
 		if (count != 0)
 			gpio_chip_set_multiple(chip, mask, bits);
+
+		if (mask != fastpath)
+			kfree(mask);
 	}
+	return 0;
 }
 
 /**
@@ -2721,13 +2754,13 @@ EXPORT_SYMBOL_GPL(gpiod_set_value);
  * This function should be called from contexts where we cannot sleep, and will
  * complain if the GPIO chip functions potentially sleep.
  */
-void gpiod_set_raw_array_value(unsigned int array_size,
+int gpiod_set_raw_array_value(unsigned int array_size,
 			 struct gpio_desc **desc_array, int *value_array)
 {
 	if (!desc_array)
-		return;
-	gpiod_set_array_value_complex(true, false, array_size, desc_array,
-				      value_array);
+		return -EINVAL;
+	return gpiod_set_array_value_complex(true, false, array_size,
+					desc_array, value_array);
 }
 EXPORT_SYMBOL_GPL(gpiod_set_raw_array_value);
 
@@ -2743,13 +2776,13 @@ EXPORT_SYMBOL_GPL(gpiod_set_raw_array_value);
  * This function should be called from contexts where we cannot sleep, and will
  * complain if the GPIO chip functions potentially sleep.
  */
-void gpiod_set_array_value(unsigned int array_size,
+int gpiod_set_array_value(unsigned int array_size,
 			   struct gpio_desc **desc_array, int *value_array)
 {
 	if (!desc_array)
-		return;
-	gpiod_set_array_value_complex(false, false, array_size, desc_array,
-				      value_array);
+		return -EINVAL;
+	return gpiod_set_array_value_complex(false, false, array_size,
+					     desc_array, value_array);
 }
 EXPORT_SYMBOL_GPL(gpiod_set_array_value);
 
@@ -3003,14 +3036,14 @@ EXPORT_SYMBOL_GPL(gpiod_set_value_cansleep);
  *
  * This function is to be called from contexts that can sleep.
  */
-void gpiod_set_raw_array_value_cansleep(unsigned int array_size,
+int gpiod_set_raw_array_value_cansleep(unsigned int array_size,
 					struct gpio_desc **desc_array,
 					int *value_array)
 {
 	might_sleep_if(extra_checks);
 	if (!desc_array)
-		return;
-	gpiod_set_array_value_complex(true, true, array_size, desc_array,
+		return -EINVAL;
+	return gpiod_set_array_value_complex(true, true, array_size, desc_array,
 				      value_array);
 }
 EXPORT_SYMBOL_GPL(gpiod_set_raw_array_value_cansleep);
@@ -3043,15 +3076,15 @@ void gpiod_add_lookup_tables(struct gpiod_lookup_table **tables, size_t n)
  *
  * This function is to be called from contexts that can sleep.
  */
-void gpiod_set_array_value_cansleep(unsigned int array_size,
+int gpiod_set_array_value_cansleep(unsigned int array_size,
 				    struct gpio_desc **desc_array,
 				    int *value_array)
 {
 	might_sleep_if(extra_checks);
 	if (!desc_array)
-		return;
-	gpiod_set_array_value_complex(false, true, array_size, desc_array,
-				      value_array);
+		return -EINVAL;
+	return gpiod_set_array_value_complex(false, true, array_size,
+					     desc_array, value_array);
 }
 EXPORT_SYMBOL_GPL(gpiod_set_array_value_cansleep);
 
@@ -3576,8 +3609,7 @@ struct gpio_descs *__must_check gpiod_get_array(struct device *dev,
 	if (count < 0)
 		return ERR_PTR(count);
 
-	descs = kzalloc(sizeof(*descs) + sizeof(descs->desc[0]) * count,
-			GFP_KERNEL);
+	descs = kzalloc(struct_size(descs, desc, count), GFP_KERNEL);
 	if (!descs)
 		return ERR_PTR(-ENOMEM);
 

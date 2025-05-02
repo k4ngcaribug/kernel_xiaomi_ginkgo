@@ -34,12 +34,6 @@
 #include "wcd-mbhc-adc.h"
 #include "wcd-mbhc-v2-api.h"
 
-/*begin, add support fm inside lan add by wangfajie@longcheer.com at 20190501*/
-#if defined(CONFIG_FM_INSIDE_LAN)
-#include <sound/fm_lan.h>
-#endif
-/*end*/
-
 void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 			  struct snd_soc_jack *jack, int status, int mask)
 {
@@ -569,12 +563,6 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
 	if (!insertion) {
-		/*begin, there is headset plug out so we need pass the state to kernel in btfm modules
-		  add by wangfajie@longcheer.com at 20190501*/
-#if defined(CONFIG_FM_INSIDE_LAN)
-		headset_status_change(false);
-#endif
-		/*end*/
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
 		/*
@@ -620,13 +608,6 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		mbhc->current_plug = MBHC_PLUG_TYPE_NONE;
 		mbhc->force_linein = false;
 	} else {
-		/*begin, there is headset plug in so we need pass the state to kernel in btfm modules
-			add by wangfajie@longcheer.com at 20190501*/
-#if defined(CONFIG_FM_INSIDE_LAN)
-		headset_status_change(true);
-#endif
-		/*end*/
-
 		/*
 		 * Report removal of current jack type.
 		 * Headphone to headset shouldn't report headphone
@@ -676,7 +657,6 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 			}
 			mbhc->hph_status &= ~(SND_JACK_HEADSET |
 						SND_JACK_LINEOUT |
-						SND_JACK_ANC_HEADPHONE |
 						SND_JACK_UNSUPPORTED);
 		}
 
@@ -694,8 +674,9 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 			mbhc->jiffies_atreport = jiffies;
 		} else if (jack_type == SND_JACK_LINEOUT) {
 			mbhc->current_plug = MBHC_PLUG_TYPE_HIGH_HPH;
-		} else if (jack_type == SND_JACK_ANC_HEADPHONE)
-			mbhc->current_plug = MBHC_PLUG_TYPE_ANC_HEADPHONE;
+		} else {
+			pr_debug("%s: invalid Jack type %d\n",__func__, jack_type);
+		}
 
 		if (mbhc->mbhc_cb->hph_pa_on_status)
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(codec);
@@ -833,8 +814,10 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 		 * Nothing was reported previously
 		 * report a headphone or unsupported
 		 */
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
+#endif
 
 		wcd_mbhc_report_plug(mbhc, 1, SND_JACK_HEADPHONE);
 	} else if (plug_type == MBHC_PLUG_TYPE_GND_MIC_SWAP) {
@@ -849,11 +832,11 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 			anc_mic_found =
 			mbhc->mbhc_fn->wcd_mbhc_detect_anc_plug_type(mbhc);
 		jack_type = SND_JACK_HEADSET;
-		if (anc_mic_found)
-			jack_type = SND_JACK_ANC_HEADPHONE;
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADPHONE)
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
+#endif
 
 		/*
 		 * If Headphone was reported previously, this will
@@ -1029,9 +1012,6 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			    WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_ISRC_EN, 0);
 			mbhc->is_extn_cable = false;
 			jack_type = SND_JACK_LINEOUT;
-			break;
-		case MBHC_PLUG_TYPE_ANC_HEADPHONE:
-			jack_type = SND_JACK_ANC_HEADPHONE;
 			break;
 		default:
 			pr_info("%s: Invalid current plug: %d\n",
@@ -1433,8 +1413,13 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 		/* Insertion debounce set to 48ms */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 4);
 	} else {
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		/* Insertion debounce set to 256ms */
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 9);
+#else
+		/* Insertion debounce set to 96ms */
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_INSREM_DBNC, 6);
+#endif
 	}
 
 	/* Button Debounce set to 16ms */
@@ -2016,6 +2001,8 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 	const char *hs_thre = "qcom,msm-mbhc-hs-mic-max-threshold-mv";
 	const char *hph_thre = "qcom,msm-mbhc-hs-mic-min-threshold-mv";
+
+ 	impedance_det_en = true;
 
 	pr_debug("%s: enter\n", __func__);
 

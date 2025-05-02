@@ -5,9 +5,9 @@
 # A mix between the arm64 and arm vDSO Makefiles.
 
 ifeq ($(cc-name),clang)
-  CC_ARM32 := $(CC) $(CLANG_TARGET_ARM32) -no-integrated-as $(CLANG_GCC32_TC) $(CLANG_PREFIX32)
+  CC_ARM32 := $(CC) --target=arm-linux-gnueabi
 else
-  CC_ARM32 := $(CROSS_COMPILE_ARM32)$(cc-name)
+  CC_ARM32 := $(CROSS_COMPILE_COMPAT)$(cc-name)
 endif
 
 # Same as cc-*option, but using CC_ARM32 instead of CC
@@ -38,9 +38,6 @@ VDSO_CAFLAGS += $(call cc32-option,-fno-PIE)
 ifdef CONFIG_DEBUG_INFO
 VDSO_CAFLAGS += -g
 endif
-ifeq ($(shell $(CONFIG_SHELL) $(srctree)/scripts/gcc-goto.sh $(CC_ARM32)), y)
-VDSO_CAFLAGS += -DCC_HAVE_ASM_GOTO
-endif
 
 # From arm Makefile
 VDSO_CAFLAGS += $(call cc32-option,-fno-dwarf2-cfi-asm)
@@ -68,11 +65,7 @@ VDSO_CFLAGS += -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
                -Werror-implicit-function-declaration \
                -Wno-format-security \
                -std=gnu89
-ifeq ($(cc-name),clang)
 VDSO_CFLAGS  += -O3
-else
-VDSO_CFLAGS  += -O2
-endif
 # Some useful compiler-dependent flags from top-level Makefile
 VDSO_CFLAGS += $(call cc32-option,-Wdeclaration-after-statement,)
 VDSO_CFLAGS += $(call cc32-option,-Wno-pointer-sign)
@@ -93,6 +86,12 @@ VDSO_CFLAGS += -Wno-int-to-pointer-cast
 
 VDSO_AFLAGS := $(VDSO_CAFLAGS)
 VDSO_AFLAGS += -D__ASSEMBLY__
+
+ifeq ($(cc-name),gcc)
+VDSO_CFLAGS += -mtune=cortex-a73.cortex-a53 -march=armv8-a
+else ifeq ($(cc-name),clang)
+KBUILD_CFLAGS += -mcpu=cortex-a53 -mtune=cortex-a53
+endif
 
 VDSO_LDFLAGS := $(VDSO_CPPFLAGS)
 # From arm vDSO Makefile
@@ -166,7 +165,7 @@ quiet_cmd_vdsosym = VDSOSYM $@
       cmd_vdsosym = $(NM) $< | $(gen-vdsosym) | LC_ALL=C sort > $@
 
 # Install commands for the unstripped file
-quiet_cmd_vdso_install = INSTALL $@
+quiet_cmd_vdso_install = INSTALL32 $@
       cmd_vdso_install = cp $(obj)/$@.dbg $(MODLIB)/vdso/vdso32.so
 
 vdso.so: $(obj)/vdso.so.dbg

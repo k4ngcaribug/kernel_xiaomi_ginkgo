@@ -275,6 +275,10 @@ static void __vb2_plane_dmabuf_put(struct vb2_buffer *vb, struct vb2_plane *p)
 	p->mem_priv = NULL;
 	p->dbuf = NULL;
 	p->dbuf_mapped = 0;
+	p->bytesused = 0;
+	p->length = 0;
+	p->m.fd = 0;
+	p->data_offset = 0;
 }
 
 /**
@@ -1149,10 +1153,6 @@ static int __prepare_dmabuf(struct vb2_buffer *vb, const void *pb)
 
 		/* Release previously acquired memory if present */
 		__vb2_plane_dmabuf_put(vb, &vb->planes[plane]);
-		vb->planes[plane].bytesused = 0;
-		vb->planes[plane].length = 0;
-		vb->planes[plane].m.fd = 0;
-		vb->planes[plane].data_offset = 0;
 
 		/* Acquire each plane's memory */
 		mem_priv = call_ptr_memop(vb, attach_dmabuf,
@@ -1571,7 +1571,7 @@ int vb2_wait_for_all_buffers(struct vb2_queue *q)
 	}
 
 	if (q->start_streaming_called)
-		wait_event_interruptible(q->done_wq, !atomic_read(&q->owned_by_drv_count));
+		wait_event(q->done_wq, !atomic_read(&q->owned_by_drv_count));
 	return 0;
 }
 EXPORT_SYMBOL_GPL(vb2_wait_for_all_buffers);

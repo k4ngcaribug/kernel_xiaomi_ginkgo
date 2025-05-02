@@ -7,7 +7,6 @@
 */
 
 #include "fuse_i.h"
-#include "fuse_shortcircuit.h"
 
 #include <linux/pagemap.h>
 #include <linux/slab.h>
@@ -23,21 +22,15 @@
 static const struct file_operations fuse_direct_io_file_operations;
 
 static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
-			  int opcode, struct fuse_open_out *outargp,
-			  struct file **lower_file)
+			  int opcode, struct fuse_open_out *outargp)
 {
-	ssize_t ret;
 	struct fuse_open_in inarg;
 	FUSE_ARGS(args);
-	char *iname = NULL;
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.flags = file->f_flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
 	if (!fc->atomic_o_trunc)
 		inarg.flags &= ~O_TRUNC;
-	if (fc->writeback_cache)
-		inarg.flags &= ~O_APPEND;
-
 	args.in.h.opcode = opcode;
 	args.in.h.nodeid = nodeid;
 	args.in.numargs = 1;
@@ -47,16 +40,7 @@ static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
 	args.out.args[0].size = sizeof(*outargp);
 	args.out.args[0].value = outargp;
 
-	if (opcode == FUSE_OPEN)
-		iname = inode_name(file_inode(file));
-	args.iname = iname;
-
-	ret = fuse_simple_request(fc, &args);
-	if (args.iname)
-		__putname(args.iname);
-	if (args.private_lower_rw_file != NULL)
-		*lower_file = args.private_lower_rw_file;
-	return ret;
+	return fuse_simple_request(fc, &args);
 }
 
 struct fuse_file *fuse_file_alloc(struct fuse_conn *fc)
@@ -67,7 +51,6 @@ struct fuse_file *fuse_file_alloc(struct fuse_conn *fc)
 	if (unlikely(!ff))
 		return NULL;
 
-	ff->rw_lower_file = NULL;
 	ff->fc = fc;
 	ff->reserved_req = fuse_request_alloc(0);
 	if (unlikely(!ff->reserved_req)) {
@@ -148,8 +131,7 @@ int fuse_do_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
 		struct fuse_open_out outarg;
 		int err;
 
-		err = fuse_send_open(fc, nodeid, file, opcode, &outarg,
-				&(ff->rw_lower_file));
+		err = fuse_send_open(fc, nodeid, file, opcode, &outarg);
 		if (!err) {
 			ff->fh = outarg.fh;
 			ff->open_flags = outarg.open_flags;
@@ -224,6 +206,9 @@ int fuse_open_common(struct inode *inode, struct file *file, bool isdir)
 			  fc->atomic_o_trunc &&
 			  fc->writeback_cache;
 
+	if (fuse_is_bad(inode))
+		return -EIO;
+
 	err = generic_file_open(inode, file);
 	if (err)
 		return err;
@@ -274,8 +259,6 @@ void fuse_release_common(struct file *file, bool isdir)
 	struct fuse_file *ff = file->private_data;
 	struct fuse_req *req = ff->reserved_req;
 	int opcode = isdir ? FUSE_RELEASEDIR : FUSE_RELEASE;
-
-	fuse_shortcircuit_release(ff);
 
 	fuse_passthrough_release(&ff->passthrough);
 
@@ -429,7 +412,7 @@ static int fuse_flush(struct file *file, fl_owner_t id)
 	struct fuse_flush_in inarg;
 	int err;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	if (fc->no_flush)
@@ -477,7 +460,7 @@ int fuse_fsync_common(struct file *file, loff_t start, loff_t end,
 	struct fuse_fsync_in inarg;
 	int err;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	inode_lock(inode);
@@ -792,7 +775,7 @@ static int fuse_readpage(struct file *file, struct page *page)
 	int err;
 
 	err = -EIO;
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		goto out;
 
 	err = fuse_do_readpage(file, page);
@@ -919,7 +902,7 @@ static int fuse_readpages(struct file *file, struct address_space *mapping,
 	int nr_alloc = min_t(unsigned, nr_pages, FUSE_MAX_PAGES_PER_REQ);
 
 	err = -EIO;
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		goto out;
 
 	data.file = file;
@@ -951,6 +934,15 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	struct fuse_file *ff = iocb->ki_filp->private_data;
 
+	if (fuse_is_bad(inode))
+		return -EIO;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
+
+	if (fuse_is_bad(inode))
+		return -EIO;
+
 	/*
 	 * In auto invalidate mode, always update attributes on read.
 	 * Otherwise, only update if we attempt to read past EOF (to ensure
@@ -964,11 +956,8 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 			return err;
 	}
 
-
 	if (ff->passthrough.filp)
 		ret_val = fuse_passthrough_read_iter(iocb, to);
-	else if (ff && ff->rw_lower_file)
-		ret_val = fuse_shortcircuit_read_iter(iocb, to);
 	else
 		ret_val = generic_file_read_iter(iocb, to);
 
@@ -1159,7 +1148,7 @@ static ssize_t fuse_perform_write(struct kiocb *iocb,
 	int err = 0;
 	ssize_t res = 0;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	if (inode->i_size < pos + iov_iter_count(ii))
@@ -1220,14 +1209,8 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ff->passthrough.filp)
 		return fuse_passthrough_write_iter(iocb, from);
 
-	if (ff && ff->rw_lower_file) {
-		/* Update size (EOF optimization) and mode (SUID clearing) */
-		err = fuse_update_attributes(mapping->host, file);
-		if (err)
-			return err;
-
-		return fuse_shortcircuit_write_iter(iocb, from);
-	}
+	if (ff->passthrough.filp)
+		return fuse_passthrough_write_iter(iocb, from);
 
 	if (get_fuse_conn(inode)->writeback_cache) {
 		/* Update size (EOF optimization) and mode (SUID clearing) */
@@ -1361,6 +1344,7 @@ static int fuse_get_user_pages(struct fuse_req *req, struct iov_iter *ii,
 			(PAGE_SIZE - ret) & (PAGE_SIZE - 1);
 	}
 
+	req->user_pages = true;
 	if (write)
 		req->in.argpages = 1;
 	else
@@ -1465,7 +1449,7 @@ static ssize_t __fuse_direct_read(struct fuse_io_priv *io,
 	ssize_t res;
 	struct inode *inode = file_inode(io->iocb->ki_filp);
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	res = fuse_direct_io(io, iter, ppos, 0);
@@ -1487,7 +1471,7 @@ static ssize_t fuse_direct_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	struct fuse_io_priv io = FUSE_IO_PRIV_SYNC(iocb);
 	ssize_t res;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	/* Don't allow parallel writes to the same file */
@@ -1961,7 +1945,7 @@ static int fuse_writepages(struct address_space *mapping,
 	int err;
 
 	err = -EIO;
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		goto out;
 
 	data.inode = inode;
@@ -2751,7 +2735,7 @@ long fuse_ioctl_common(struct file *file, unsigned int cmd,
 	if (!fuse_allow_current_process(fc))
 		return -EACCES;
 
-	if (is_bad_inode(inode))
+	if (fuse_is_bad(inode))
 		return -EIO;
 
 	return fuse_do_ioctl(file, cmd, arg, flags);
@@ -2810,7 +2794,7 @@ static void fuse_register_polled_file(struct fuse_conn *fc,
 {
 	spin_lock(&fc->lock);
 	if (RB_EMPTY_NODE(&ff->polled_node)) {
-		struct rb_node **link, *uninitialized_var(parent);
+		struct rb_node **link, *parent;
 
 		link = fuse_find_polled_node(fc, ff->kh, &parent);
 		BUG_ON(*link);

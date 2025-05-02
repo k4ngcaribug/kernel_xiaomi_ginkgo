@@ -1,15 +1,6 @@
 /*
  * Copyright (c) 2013-2019, Linux Foundation. All rights reserved.
- *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/fs.h>
 #include <linux/mutex.h>
@@ -1823,6 +1814,18 @@ static int q6lsm_mmapcallback(struct apr_client_data *data, void *priv)
 		return 0;
 	}
 
+	/*
+	The payload_size can be either 4 or 8 bytes.
+	It has to be verified whether the payload_size is
+        atleast 4 bytes. If it is less, returns errorcode.
+	*/
+	
+	if (data->payload_size < (2 * sizeof(uint16_t))) {
+		pr_err("%s: payload has invalid size[%d]\n", __func__,
+			data->payload_size);
+		return -EINVAL;
+	}
+
 	command = payload[0];
 	retcode = payload[1];
 	sid = (data->token >> 8) & 0x0F;
@@ -2483,8 +2486,9 @@ int q6lsm_lab_buffer_alloc(struct lsm_client *client, bool alloc)
 				out_params->buf_sz;
 		allocate_size = PAGE_ALIGN(allocate_size);
 		client->lab_buffer =
-			kzalloc(sizeof(struct lsm_lab_buffer) *
-			out_params->period_count, GFP_KERNEL);
+			kcalloc(out_params->period_count,
+				sizeof(struct lsm_lab_buffer),
+				GFP_KERNEL);
 		if (!client->lab_buffer) {
 			pr_err("%s: memory allocation for lab buffer failed count %d\n"
 				, __func__,

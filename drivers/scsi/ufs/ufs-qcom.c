@@ -1254,8 +1254,11 @@ static void ufs_qcom_dev_ref_clk_ctrl(struct ufs_qcom_host *host, bool enable)
 
 		writel_relaxed(temp, host->dev_ref_clk_ctrl_mmio);
 
-		/* ensure that ref_clk is enabled/disabled before we return */
-		wmb();
+		/*
+		 * Make sure the write to ref_clk reaches the destination and
+		 * not stored in a Write Buffer (WB).
+		 */
+		readl(host->dev_ref_clk_ctrl_mmio);
 
 		/*
 		 * If we call hibern8 exit after this, we need to make sure that
@@ -1829,9 +1832,8 @@ static int ufs_qcom_pm_qos_init(struct ufs_qcom_host *host)
 		if (ret)
 			goto free_groups;
 
-		host->pm_qos.groups[i].req.type = PM_QOS_REQ_AFFINE_CORES;
-		host->pm_qos.groups[i].req.cpus_affine =
-			host->pm_qos.groups[i].mask;
+		host->pm_qos.groups[i].req.type = PM_QOS_REQ_AFFINE_IRQ;
+		host->pm_qos.groups[i].req.irq = host->hba->irq;
 		host->pm_qos.groups[i].state = PM_QOS_UNVOTED;
 		host->pm_qos.groups[i].active_reqs = 0;
 		host->pm_qos.groups[i].host = host;

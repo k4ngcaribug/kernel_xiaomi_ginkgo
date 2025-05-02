@@ -46,7 +46,7 @@ struct blk_stat_callback;
 struct keyslot_manager;
 
 #define BLKDEV_MIN_RQ	4
-#define BLKDEV_MAX_RQ	128	/* Default maximum */
+#define BLKDEV_MAX_RQ	256	/* Default maximum */
 
 /* Must be consisitent with blk_mq_poll_stats_bkt() */
 #define BLK_MQ_POLL_STATS_BKTS 16
@@ -56,6 +56,14 @@ struct keyslot_manager;
  * Defined here to simplify include dependency.
  */
 #define BLKCG_MAX_POLS		3
+
+static inline int blk_validate_block_size(unsigned long bsize)
+{
+	if (bsize < 512 || bsize > PAGE_SIZE || !is_power_of_2(bsize))
+		return -EINVAL;
+
+	return 0;
+}
 
 typedef void (rq_end_io_fn)(struct request *, blk_status_t);
 
@@ -119,8 +127,6 @@ typedef __u32 __bitwise req_flags_t;
 /* Look at ->special_vec for the actual data payload instead of the
    bio chain. */
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
-/* increased nr_pending for this request */
-#define RQF_PM_ADDED		((__force req_flags_t)(1 << 19))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
@@ -659,15 +665,14 @@ struct request_queue {
 #define QUEUE_FLAG_QUIESCED    28	/* queue has been quiesced */
 #define QUEUE_FLAG_PREEMPT_ONLY 29	/* only process REQ_PREEMPT requests */
 
-#define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_NONROT) |		\
+#define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
-				 (1 << QUEUE_FLAG_WC)		|	\
-				 (1 << QUEUE_FLAG_SAME_COMP))
+				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
+				 (0 << QUEUE_FLAG_ADD_RANDOM))
 
 #define QUEUE_FLAG_MQ_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
 				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
-				 (1 << QUEUE_FLAG_WC)		|	\
 				 (1 << QUEUE_FLAG_POLL))
 
 /*
@@ -1381,7 +1386,6 @@ static inline struct request *blk_map_queue_find_tag(struct blk_queue_tag *bqt,
 }
 
 extern int blkdev_issue_flush(struct block_device *, gfp_t, sector_t *);
-extern void blkdev_issue_flush_nowait(struct block_device *, gfp_t);
 extern int blkdev_issue_write_same(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, struct page *page);
 
@@ -1500,7 +1504,7 @@ static inline unsigned int queue_io_min(struct request_queue *q)
 	return q->limits.io_min;
 }
 
-static inline int bdev_io_min(struct block_device *bdev)
+static inline unsigned int bdev_io_min(struct block_device *bdev)
 {
 	return queue_io_min(bdev_get_queue(bdev));
 }
@@ -1983,11 +1987,10 @@ struct block_device_operations {
 	int (*compat_ioctl) (struct block_device *, fmode_t, unsigned, unsigned long);
 	unsigned int (*check_events) (struct gendisk *disk,
 				      unsigned int clearing);
-	/* ->media_changed() is DEPRECATED, use ->check_events() instead */
-	int (*media_changed) (struct gendisk *);
 	void (*unlock_native_capacity) (struct gendisk *);
 	int (*revalidate_disk) (struct gendisk *);
 	int (*getgeo)(struct block_device *, struct hd_geometry *);
+	int (*set_read_only)(struct block_device *bdev, bool ro);
 	/* this callback is with swap_lock and sometimes page table lock held */
 	void (*swap_slot_free_notify) (struct block_device *, unsigned long);
 	struct module *owner;
@@ -2115,10 +2118,6 @@ static inline int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 				     sector_t *error_sector)
 {
 	return 0;
-}
-
-static inline void blkdev_issue_flush_nowait(struct block_device *bdev, gfp_t gfp_mask)
-{
 }
 
 #endif /* CONFIG_BLOCK */

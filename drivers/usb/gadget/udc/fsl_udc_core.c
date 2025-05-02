@@ -2231,8 +2231,8 @@ static const struct file_operations fsl_proc_fops = {
 
 #else				/* !CONFIG_USB_GADGET_DEBUG_FILES */
 
-#define create_proc_file()	do {} while (0)
-#define remove_proc_file()	do {} while (0)
+#define create_proc_file()	((void)0)
+#define remove_proc_file()	((void)0)
 
 #endif				/* CONFIG_USB_GADGET_DEBUG_FILES */
 
@@ -2263,7 +2263,7 @@ static int struct_udc_setup(struct fsl_udc *udc,
 	pdata = dev_get_platdata(&pdev->dev);
 	udc->phy_mode = pdata->phy_mode;
 
-	udc->eps = kzalloc(sizeof(struct fsl_ep) * udc->max_ep, GFP_KERNEL);
+	udc->eps = kcalloc(udc->max_ep, sizeof(struct fsl_ep), GFP_KERNEL);
 	if (!udc->eps)
 		return -1;
 
@@ -2496,7 +2496,7 @@ static int fsl_udc_probe(struct platform_device *pdev)
 	/* setup the udc->eps[] for non-control endpoints and link
 	 * to gadget.ep_list */
 	for (i = 1; i < (int)(udc_controller->max_ep / 2); i++) {
-		char name[14];
+		char name[16];
 
 		sprintf(name, "ep%dout", i);
 		struct_ep_setup(udc_controller, i * 2, name, 1);

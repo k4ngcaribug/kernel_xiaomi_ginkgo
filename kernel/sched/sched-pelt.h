@@ -44,6 +44,43 @@ static const u32 runnable_avg_yN_sum[] = {
 
 #endif
 
+#ifdef CONFIG_PELT_UTIL_HALFLIFE_12
+static const u32 runnable_avg_yN_inv[] = {
+	0xffffffff,0xf1a1bf37,0xe411f039,0xd744fcc9,
+	0xcb2ff529,0xbfc886ba,0xb504f333,0xaadc0846,
+	0xa14517cb,0x9837f050,0x8facd61d,0x879c7c96,
+};
+
+static const u32 runnable_avg_yN_sum[] = {
+	    0,  966, 1878, 2739, 3551, 4318, 5042, 5725, 6370, 6979, 7553,
+	 8095, 8607,
+};
+
+#define LOAD_AVG_PERIOD 12
+#define LOAD_AVG_MAX 18227
+#define LOAD_AVG_MAX_N 128
+
+#endif
+
+#ifdef CONFIG_PELT_UTIL_HALFLIFE_14
+static const u32 runnable_avg_yN_inv[] = {
+	0xffffffff,0xf3a24b24,0xe7dd818c,0xdcaa4034,
+	0xd2017f74,0xc7dc8e94,0xbe350f94,0xb504f333,
+	0xac46751e,0xa3f41854,0x9c08a3b0,0x947f1ea5,
+	0x8d52ce1f,0x867f318b,
+};
+
+static const u32 runnable_avg_yN_sum[] = {
+	    0,  974, 1901, 2783, 3623, 4422, 5182, 5906, 6595, 7250, 7874,
+	 8468, 9033, 9571,10083,
+};
+
+#define LOAD_AVG_PERIOD 14
+#define LOAD_AVG_MAX 21178
+#define LOAD_AVG_MAX_N 150
+
+#endif
+
 #ifdef CONFIG_PELT_UTIL_HALFLIFE_8
 static const u32 runnable_avg_yN_inv[] = {
 	0xffffffff,0xeac0c6e6,0xd744fcc9,0xc5672a10,
@@ -57,5 +94,20 @@ static const u32 runnable_avg_yN_sum[] = {
 #define LOAD_AVG_PERIOD 8
 #define LOAD_AVG_MAX 12326
 #define LOAD_AVG_MAX_N 85
+
+#endif
+
+#ifdef CONFIG_PELT_UTIL_HALFLIFE_4
+static const u32 runnable_avg_yN_inv[] __maybe_unused = {
+	0xffffffff,0xd744fcc9,0xb504f333,0x9837f050,
+};
+
+static const u32 runnable_avg_yN_sum[] = {
+	    0,  861, 1585, 2193, 2705, 3135, 3497, 3801, 4057,
+};
+
+#define LOAD_AVG_PERIOD 8
+#define LOAD_AVG_MAX 6430
+#define LOAD_AVG_MAX_N 41
 
 #endif

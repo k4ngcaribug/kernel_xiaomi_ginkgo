@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2024, Qualcomm Innovation Center, Inc. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -309,7 +310,7 @@ static ssize_t audio_output_latency_dbgfs_write(struct file *file,
 		pr_err("%s: err count is more %zd\n", __func__, count);
 		return -EINVAL;
 	}
-	temp  = kmalloc(2*sizeof(char), GFP_KERNEL);
+	temp  = kmalloc(2, GFP_KERNEL);
 
 	out_cold_index = 0;
 
@@ -365,7 +366,7 @@ static ssize_t audio_input_latency_dbgfs_write(struct file *file,
 		pr_err("%s: err count is more %zd\n", __func__, count);
 		return -EINVAL;
 	}
-	temp  = kmalloc(2*sizeof(char), GFP_KERNEL);
+	temp  = kmalloc(2, GFP_KERNEL);
 
 	if (temp) {
 		if (copy_from_user(temp, buf, 2*sizeof(char))) {
@@ -2288,6 +2289,16 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 
 		config_debug_fs_read_cb();
 
+		if (data->payload_size != (READDONE_IDX_SEQ_ID + 1) * sizeof(uint32_t)) {
+			pr_err("%s:  payload size of %d is less than expected %d.\n",
+					__func__, data->payload_size,
+					((READDONE_IDX_SEQ_ID + 1) * sizeof(uint32_t)));
+			spin_unlock_irqrestore(
+				&(session[session_id].session_lock),
+				flags);
+			return -EINVAL;
+		}
+
 		dev_vdbg(ac->dev, "%s: ReadDone: status=%d buff_add=0x%x act_size=%d offset=%d\n",
 				__func__, payload[READDONE_IDX_STATUS],
 				payload[READDONE_IDX_BUFADD_LSW],
@@ -2394,7 +2405,16 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 				__func__, data->payload_size);
 		break;
 	case ASM_SESSION_CMDRSP_GET_MTMX_STRTR_PARAMS_V2:
-		q6asm_process_mtmx_get_param_rsp(ac, (void *) payload);
+		payload_size = sizeof(struct asm_mtmx_strtr_get_params_cmdrsp);
+		if (data->payload_size < payload_size) {
+			pr_err("%s: insufficient payload size = %d\n",
+				__func__, data->payload_size);
+			spin_unlock_irqrestore(
+				&(session[session_id].session_lock), flags);
+			return -EINVAL;
+		}
+		q6asm_process_mtmx_get_param_rsp(ac,
+			(struct asm_mtmx_strtr_get_params_cmdrsp *) payload);
 		break;
 	case ASM_STREAM_PP_EVENT:
 	case ASM_STREAM_CMD_ENCDEC_EVENTS:
@@ -8478,7 +8498,7 @@ static int q6asm_memory_map_regions(struct audio_client *ac, int dir,
 		return -EINVAL;
 	}
 
-	buffer_node = kzalloc(sizeof(struct asm_buffer_node) * bufcnt,
+	buffer_node = kcalloc(bufcnt, sizeof(struct asm_buffer_node),
 				GFP_KERNEL);
 	if (!buffer_node)
 		return -ENOMEM;

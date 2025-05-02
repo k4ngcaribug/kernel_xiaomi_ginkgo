@@ -302,10 +302,10 @@ static char *console_buffer;
 static ssize_t console_bufsize;
 
 static ssize_t last_kmsg_read(struct file *file, char __user *buf,
-			      size_t len, loff_t *offset)
+		size_t len, loff_t *offset)
 {
 	return simple_read_from_buffer(buf, len, offset,
-				       console_buffer, console_bufsize);
+			console_buffer, console_bufsize);
 }
 
 static const struct file_operations last_kmsg_fops = {
@@ -477,7 +477,11 @@ static int pstore_fill_super(struct super_block *sb, void *data, int silent)
 
 	inode = pstore_get_inode(sb);
 	if (inode) {
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		inode->i_mode = S_IFDIR | 0755;
+#else
+		inode->i_mode = S_IFDIR | 0750;
+#endif
 		inode->i_op = &pstore_dir_inode_operations;
 		inode->i_fop = &simple_dir_operations;
 		inc_nlink(inode);
@@ -525,12 +529,14 @@ static int __init init_pstore_fs(void)
 	err = register_filesystem(&pstore_fs_type);
 	if (err < 0) {
 		sysfs_remove_mount_point(fs_kobj, "pstore");
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		goto out;
+#endif
 	}
 
 #ifdef CONFIG_PSTORE_LAST_KMSG
 	last_kmsg_entry = proc_create_data("last_kmsg", S_IFREG | S_IRUGO,
-					   NULL, &last_kmsg_fops, NULL);
+				NULL, &last_kmsg_fops, NULL);
 	if (!last_kmsg_entry) {
 		pr_err("Failed to create last_kmsg\n");
 		goto out;

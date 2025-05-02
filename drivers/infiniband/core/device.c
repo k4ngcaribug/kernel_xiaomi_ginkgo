@@ -335,8 +335,8 @@ static int read_port_immutable(struct ib_device *device)
 	 * Therefore port_immutable is declared as a 1 based array with
 	 * potential empty slots at the beginning.
 	 */
-	device->port_immutable = kzalloc(sizeof(*device->port_immutable)
-					 * (end_port + 1),
+	device->port_immutable = kcalloc(end_port + 1,
+					 sizeof(*device->port_immutable),
 					 GFP_KERNEL);
 	if (!device->port_immutable)
 		return -ENOMEM;
@@ -1075,7 +1075,8 @@ int ib_find_gid(struct ib_device *device, union ib_gid *gid,
 		for (i = 0; i < device->port_immutable[port].gid_tbl_len; ++i) {
 			ret = ib_query_gid(device, port, i, &tmp_gid, NULL);
 			if (ret)
-				return ret;
+				continue;
+
 			if (!memcmp(&tmp_gid, gid, sizeof *gid)) {
 				*port_num = port;
 				if (index)

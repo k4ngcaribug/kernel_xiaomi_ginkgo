@@ -120,7 +120,7 @@ void synchronize_irq(unsigned int irq)
 		 * running. Now verify that no threaded handlers are
 		 * active.
 		 */
-		wait_event_interruptible(desc->wait_for_threads,
+		wait_event(desc->wait_for_threads,
 			   !atomic_read(&desc->threads_active));
 	}
 }
@@ -129,7 +129,7 @@ EXPORT_SYMBOL(synchronize_irq);
 #ifdef CONFIG_SMP
 cpumask_var_t irq_default_affinity;
 
-static bool __irq_can_set_affinity(struct irq_desc *desc)
+bool __irq_can_set_affinity(struct irq_desc *desc)
 {
 	if (!desc || !irqd_can_balance(&desc->irq_data) ||
 	    !desc->irq_data.chip || !desc->irq_data.chip->irq_set_affinity)
@@ -380,6 +380,8 @@ irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify)
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 
 	if (old_notify) {
+		if (notify)
+			WARN(1, "overwriting previous IRQ affinity notifier\n");
 		if (cancel_work_sync(&old_notify->work)) {
 			/* Pending work had a ref, put that one too */
 			kref_put(&old_notify->kref, old_notify->release);
@@ -1199,10 +1201,11 @@ static void affine_one_perf_thread(struct irqaction *action)
 	if (!action->thread)
 		return;
 
-	if (action->flags & IRQF_PERF_AFFINE)
+	if (action->flags & IRQF_PERF_AFFINE) {
 		mask = cpu_perf_mask;
+		action->thread->pc_flags |= PC_PERF_AFFINE;
+	}
 
-	action->thread->flags |= PF_PERF_CRITICAL;
 	set_cpus_allowed_ptr(action->thread, mask);
 }
 
@@ -1211,7 +1214,7 @@ static void unaffine_one_perf_thread(struct irqaction *action)
 	if (!action->thread)
 		return;
 
-	action->thread->flags &= ~PF_PERF_CRITICAL;
+	action->thread->pc_flags &= ~PC_PERF_AFFINE;
 	set_cpus_allowed_ptr(action->thread, cpu_all_mask);
 }
 
@@ -1568,7 +1571,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			irqd_set(&desc->irq_data, IRQD_NO_BALANCING);
 		}
 
-		if (new->flags & IRQF_PERF_AFFINE) {
+		if (new->flags & (IRQF_PERF_AFFINE)) {
 			affine_one_perf_thread(new);
 			irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
 			*old_ptr = new;

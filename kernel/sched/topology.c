@@ -417,10 +417,9 @@ DEFINE_PER_CPU(int, sd_llc_size);
 DEFINE_PER_CPU(int, sd_llc_id);
 DEFINE_PER_CPU(struct sched_domain_shared *, sd_llc_shared);
 DEFINE_PER_CPU(struct sched_domain *, sd_numa);
+DEFINE_PER_CPU(struct sched_domain *, sd_asym);
 DEFINE_PER_CPU(struct sched_domain *, sd_ea);
 DEFINE_PER_CPU(struct sched_domain *, sd_scs);
-DEFINE_PER_CPU(struct sched_domain *, sd_asym_packing);
-DEFINE_PER_CPU(struct sched_domain *, sd_asym_cpucapacity);
 DEFINE_STATIC_KEY_FALSE(sched_asym_cpucapacity);
 
 static void update_top_cache_domain(int cpu)
@@ -447,10 +446,7 @@ static void update_top_cache_domain(int cpu)
 	rcu_assign_pointer(per_cpu(sd_numa, cpu), sd);
 
 	sd = highest_flag_domain(cpu, SD_ASYM_PACKING);
-	rcu_assign_pointer(per_cpu(sd_asym_packing, cpu), sd);
-
-	sd = lowest_flag_domain(cpu, SD_ASYM_CPUCAPACITY);
-	rcu_assign_pointer(per_cpu(sd_asym_cpucapacity, cpu), sd);
+	rcu_assign_pointer(per_cpu(sd_asym, cpu), sd);
 
 	for_each_domain(cpu, sd) {
 		if (sd->groups->sge)
@@ -537,8 +533,8 @@ static int __init isolated_cpu_setup(char *str)
 
 	alloc_bootmem_cpumask_var(&cpu_isolated_map);
 	ret = cpulist_parse(str, cpu_isolated_map);
-	if (ret || cpumask_last(cpu_isolated_map) >= nr_cpu_ids) {
-		pr_err("sched: Error, all isolcpus= values must be between 0 and %u - ignoring them.\n", nr_cpu_ids-1);
+	if (ret) {
+		pr_err("sched: Error, all isolcpus= values must be between 0 and %u\n", nr_cpu_ids);
 		return 0;
 	}
 	return 1;
@@ -900,7 +896,6 @@ static struct sched_group *get_group(int cpu, struct sd_data *sdd)
 	struct sched_domain *sd = *per_cpu_ptr(sdd->sd, cpu);
 	struct sched_domain *child = sd->child;
 	struct sched_group *sg;
-	bool already_visited;
 
 	if (child)
 		cpu = cpumask_first(sched_domain_span(child));
@@ -908,14 +903,9 @@ static struct sched_group *get_group(int cpu, struct sd_data *sdd)
 	sg = *per_cpu_ptr(sdd->sg, cpu);
 	sg->sgc = *per_cpu_ptr(sdd->sgc, cpu);
 
-	/* Increase refcounts for claim_allocations: */
-	already_visited = atomic_inc_return(&sg->ref) > 1;
-	/* sgc visits should follow a similar trend as sg */
-	WARN_ON(already_visited != (atomic_inc_return(&sg->sgc->ref) > 1));
-
-	/* If we have already visited that group, it's already initialized. */
-	if (already_visited)
-		return sg;
+	/* For claim_allocations: */
+	atomic_inc(&sg->ref);
+	atomic_inc(&sg->sgc->ref);
 
 	if (child) {
 		cpumask_copy(sched_group_span(sg), sched_domain_span(child));
@@ -1147,16 +1137,13 @@ static void set_domain_attribute(struct sched_domain *sd,
 	if (!attr || attr->relax_domain_level < 0) {
 		if (default_relax_domain_level < 0)
 			return;
-		else
-			request = default_relax_domain_level;
+		request = default_relax_domain_level;
 	} else
 		request = attr->relax_domain_level;
-	if (request < sd->level) {
+
+	if (sd->level >= request) {
 		/* Turn off idle balance on this domain: */
 		sd->flags &= ~(SD_BALANCE_WAKE|SD_BALANCE_NEWIDLE);
-	} else {
-		/* Turn on idle balance on this domain: */
-		sd->flags |= (SD_BALANCE_WAKE|SD_BALANCE_NEWIDLE);
 	}
 }
 
@@ -1284,8 +1271,8 @@ sd_init(struct sched_domain_topology_level *tl,
 	*sd = (struct sched_domain){
 		.min_interval		= sd_weight,
 		.max_interval		= 2*sd_weight,
-		.busy_factor		= 16,
-		.imbalance_pct		= 117,
+		.busy_factor		= 32,
+		.imbalance_pct		= 125,
 
 		.cache_nice_tries	= 0,
 		.busy_idx		= 0,
@@ -1346,9 +1333,18 @@ sd_init(struct sched_domain_topology_level *tl,
 	 * Convert topological properties into behaviour.
 	 */
 
-	/* Don't attempt to spread across CPUs of different capacities. */
-	if ((sd->flags & SD_ASYM_CPUCAPACITY) && sd->child)
-		sd->child->flags &= ~SD_PREFER_SIBLING;
+	if (sd->flags & SD_ASYM_CPUCAPACITY) {
+		struct sched_domain *t = sd;
+
+		/*
+		 * Don't attempt to spread across cpus of different capacities.
+		 */
+		if (sd->child)
+			sd->child->flags &= ~SD_PREFER_SIBLING;
+
+		for_each_lower_domain(t)
+			t->flags |= SD_BALANCE_WAKE;
+	}
 
 	if (sd->flags & SD_SHARE_CPUCAPACITY) {
 		sd->imbalance_pct = 110;
@@ -1959,7 +1955,7 @@ cpumask_var_t *alloc_sched_domains(unsigned int ndoms)
 	int i;
 	cpumask_var_t *doms;
 
-	doms = kmalloc(sizeof(*doms) * ndoms, GFP_KERNEL);
+	doms = kmalloc_array(ndoms, sizeof(*doms), GFP_KERNEL);
 	if (!doms)
 		return NULL;
 	for (i = 0; i < ndoms; i++) {

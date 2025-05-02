@@ -140,9 +140,9 @@ static void bcm_add_bus_req(struct device *dev)
 		bcm_dev = to_msm_bus_node(cur_dev->node_info->bcm_devs[i]);
 		max_num_lnodes = bcm_dev->bcmdev->num_bus_devs;
 		if (!bcm_dev->num_lnodes) {
-			bcm_dev->lnode_list = devm_kzalloc(dev,
-				sizeof(struct link_node) * max_num_lnodes,
-								GFP_KERNEL);
+			bcm_dev->lnode_list = devm_kcalloc(dev,
+				max_num_lnodes, sizeof(struct link_node),
+				GFP_KERNEL);
 			if (!bcm_dev->lnode_list)
 				goto exit_bcm_add_bus_req;
 
@@ -211,9 +211,9 @@ static int gen_lnode(struct device *dev,
 	}
 
 	if (!cur_dev->num_lnodes) {
-		cur_dev->lnode_list = devm_kzalloc(dev,
-				sizeof(struct link_node) * NUM_LNODES,
-								GFP_KERNEL);
+		cur_dev->lnode_list = devm_kcalloc(dev,
+				NUM_LNODES, sizeof(struct link_node),
+				GFP_KERNEL);
 		if (!cur_dev->lnode_list)
 			goto exit_gen_lnode;
 
@@ -419,9 +419,6 @@ static int getpath(struct device *src_dev, int dest, const char *cl_name)
 	src = src_node->node_info->id;
 	list_add_tail(&src_node->link, &traverse_list);
 
-	/* Setup list of black-listed nodes */
-	setup_bl_list(src_node, &black_list);
-
 	while ((!found && !list_empty(&traverse_list))) {
 		struct msm_bus_node_device_type *bus_node = NULL;
 		unsigned int i;
@@ -435,6 +432,9 @@ static int getpath(struct device *src_dev, int dest, const char *cl_name)
 
 		/* Setup the new edge list */
 		list_for_each_entry(bus_node, &traverse_list, link) {
+			/* Setup list of black-listed nodes */
+			setup_bl_list(bus_node, &black_list);
+
 			for (i = 0; i < bus_node->node_info->num_connections;
 									i++) {
 				bool skip = false;
@@ -1165,8 +1165,9 @@ static int alloc_handle_lst(int size)
 	struct msm_bus_client **t_cl_list;
 
 	if (!handle_list.num_entries) {
-		t_cl_list = kzalloc(sizeof(struct msm_bus_client *)
-			* NUM_CL_HANDLES, GFP_KERNEL);
+		t_cl_list = kcalloc(NUM_CL_HANDLES,
+				    sizeof(struct msm_bus_client *),
+				    GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(t_cl_list)) {
 			ret = -ENOMEM;
 			MSM_BUS_ERR("%s: Failed to allocate handles list",
@@ -1599,8 +1600,6 @@ static int update_context(uint32_t cl, bool active_only,
 		goto exit_update_context;
 	}
 
-//	trace_bus_update_request_end(pdata->name);
-
 exit_update_context:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;
@@ -1662,8 +1661,6 @@ static int update_request_adhoc(uint32_t cl, unsigned int index)
 		goto exit_update_request;
 	}
 
-//	trace_bus_update_request_end(pdata->name);
-
 exit_update_request:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;
@@ -1719,8 +1716,6 @@ static int query_client_usecase(struct msm_bus_tcs_usecase *tcs_usecase,
 		goto exit_query_client_usecase;
 	}
 
-//	trace_bus_update_request_end(pdata->name);
-
 exit_query_client_usecase:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;
@@ -1772,8 +1767,6 @@ static int query_client_usecase_all(struct msm_bus_tcs_handle *tcs_handle,
 		pr_err("%s: Err updating path\n", __func__);
 		goto exit_query_client_usecase_all;
 	}
-
-//	trace_bus_update_request_end(pdata->name);
 
 exit_query_client_usecase_all:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
@@ -1847,7 +1840,6 @@ static int update_bw_adhoc(struct msm_bus_client_handle *cl, u64 ab, u64 ib)
 
 	if (log_transaction)
 		getpath_debug(cl->mas, cl->first_hop, cl->active_only);
-//	trace_bus_update_request_end(cl->name);
 exit_update_request:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 
@@ -1890,7 +1882,6 @@ static int update_bw_context(struct msm_bus_client_handle *cl, u64 act_ab,
 	cl->cur_act_ab = act_ab;
 	cl->cur_dual_ib = dual_ib;
 	cl->cur_dual_ab = dual_ab;
-//	trace_bus_update_request_end(cl->name);
 exit_change_context:
 	rt_mutex_unlock(&msm_bus_adhoc_lock);
 	return ret;

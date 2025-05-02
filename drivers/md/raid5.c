@@ -2392,7 +2392,7 @@ static int resize_stripes(struct r5conf *conf, int newsize)
 	 * is completely stalled, so now is a good time to resize
 	 * conf->disks and the scribble region
 	 */
-	ndisks = kzalloc(newsize * sizeof(struct disk_info), GFP_NOIO);
+	ndisks = kcalloc(newsize, sizeof(struct disk_info), GFP_NOIO);
 	if (ndisks) {
 		for (i = 0; i < conf->pool_size; i++)
 			ndisks[i] = conf->disks[i];
@@ -2600,7 +2600,7 @@ static void raid5_end_write_request(struct bio *bi)
 	struct stripe_head *sh = bi->bi_private;
 	struct r5conf *conf = sh->raid_conf;
 	int disks = sh->disks, i;
-	struct md_rdev *uninitialized_var(rdev);
+	struct md_rdev *rdev;
 	sector_t first_bad;
 	int bad_sectors;
 	int replacement = 0;
@@ -2668,10 +2668,10 @@ static void raid5_end_write_request(struct bio *bi)
 	if (!test_and_clear_bit(R5_DOUBLE_LOCKED, &sh->dev[i].flags))
 		clear_bit(R5_LOCKED, &sh->dev[i].flags);
 	set_bit(STRIPE_HANDLE, &sh->state);
-	raid5_release_stripe(sh);
 
 	if (sh->batch_head && sh != sh->batch_head)
 		raid5_release_stripe(sh->batch_head);
+	raid5_release_stripe(sh);
 }
 
 static void raid5_error(struct mddev *mddev, struct md_rdev *rdev)
@@ -3720,7 +3720,7 @@ static void handle_stripe_fill(struct stripe_head *sh,
 		 * back cache (prexor with orig_page, and then xor with
 		 * page) in the read path
 		 */
-		if (s->injournal && s->failed) {
+		if (s->to_read && s->injournal && s->failed) {
 			if (test_bit(STRIPE_R5C_CACHING, &sh->state))
 				r5c_make_stripe_write_out(sh);
 			goto out;
@@ -5814,7 +5814,9 @@ static sector_t reshape_request(struct mddev *mddev, sector_t sector_nr, int *sk
 	safepos = conf->reshape_safe;
 	sector_div(safepos, data_disks);
 	if (mddev->reshape_backwards) {
-		BUG_ON(writepos < reshape_sectors);
+		if (WARN_ON(writepos < reshape_sectors))
+			return MaxSector;
+
 		writepos -= reshape_sectors;
 		readpos += reshape_sectors;
 		safepos += reshape_sectors;
@@ -5832,14 +5834,18 @@ static sector_t reshape_request(struct mddev *mddev, sector_t sector_nr, int *sk
 	 * to set 'stripe_addr' which is where we will write to.
 	 */
 	if (mddev->reshape_backwards) {
-		BUG_ON(conf->reshape_progress == 0);
+		if (WARN_ON(conf->reshape_progress == 0))
+			return MaxSector;
+
 		stripe_addr = writepos;
-		BUG_ON((mddev->dev_sectors &
-			~((sector_t)reshape_sectors - 1))
-		       - reshape_sectors - stripe_addr
-		       != sector_nr);
+		if (WARN_ON((mddev->dev_sectors &
+		    ~((sector_t)reshape_sectors - 1)) -
+		    reshape_sectors - stripe_addr != sector_nr))
+			return MaxSector;
 	} else {
-		BUG_ON(writepos != sector_nr + reshape_sectors);
+		if (WARN_ON(writepos != sector_nr + reshape_sectors))
+			return MaxSector;
+
 		stripe_addr = sector_nr;
 	}
 
@@ -6272,6 +6278,9 @@ static void raid5d(struct md_thread *thread)
 		int batch_size, released;
 		unsigned int offset;
 
+		if (test_bit(MD_SB_CHANGE_PENDING, &mddev->sb_flags))
+			break;
+
 		released = release_stripe_list(conf, conf->temp_inactive_list);
 		if (released)
 			clear_bit(R5_DID_ALLOC, &conf->cache_state);
@@ -6664,9 +6673,9 @@ static int alloc_thread_groups(struct r5conf *conf, int cnt,
 	}
 	*group_cnt = num_possible_nodes();
 	size = sizeof(struct r5worker) * cnt;
-	workers = kzalloc(size * *group_cnt, GFP_NOIO);
-	*worker_groups = kzalloc(sizeof(struct r5worker_group) *
-				*group_cnt, GFP_NOIO);
+	workers = kcalloc(size, *group_cnt, GFP_NOIO);
+	*worker_groups = kcalloc(*group_cnt, sizeof(struct r5worker_group),
+				 GFP_NOIO);
 	if (!*worker_groups || !workers) {
 		kfree(workers);
 		kfree(*worker_groups);
@@ -6896,8 +6905,9 @@ static struct r5conf *setup_conf(struct mddev *mddev)
 		goto abort;
 	INIT_LIST_HEAD(&conf->free_list);
 	INIT_LIST_HEAD(&conf->pending_list);
-	conf->pending_data = kzalloc(sizeof(struct r5pending_data) *
-		PENDING_IO_MAX, GFP_KERNEL);
+	conf->pending_data = kcalloc(PENDING_IO_MAX,
+				     sizeof(struct r5pending_data),
+				     GFP_KERNEL);
 	if (!conf->pending_data)
 		goto abort;
 	for (i = 0; i < PENDING_IO_MAX; i++)
@@ -6946,7 +6956,7 @@ static struct r5conf *setup_conf(struct mddev *mddev)
 		conf->previous_raid_disks = mddev->raid_disks - mddev->delta_disks;
 	max_disks = max(conf->raid_disks, conf->previous_raid_disks);
 
-	conf->disks = kzalloc(max_disks * sizeof(struct disk_info),
+	conf->disks = kcalloc(max_disks, sizeof(struct disk_info),
 			      GFP_KERNEL);
 
 	if (!conf->disks)
@@ -7689,6 +7699,7 @@ static int raid5_add_disk(struct mddev *mddev, struct md_rdev *rdev)
 	 */
 	if (rdev->saved_raid_disk >= 0 &&
 	    rdev->saved_raid_disk >= first &&
+	    rdev->saved_raid_disk <= last &&
 	    conf->disks[rdev->saved_raid_disk].rdev == NULL)
 		first = rdev->saved_raid_disk;
 

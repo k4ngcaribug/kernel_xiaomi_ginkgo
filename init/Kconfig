@@ -2,6 +2,14 @@ config ARCH
 	string
 	option env="ARCH"
 
+config VERSION
+	string
+	option env="VERSION"
+
+config PATCHLEVEL
+	string
+	option env="PATCHLEVEL"
+
 config KERNELVERSION
 	string
 	option env="KERNELVERSION"
@@ -113,6 +121,27 @@ config LOCALVERSION_AUTO
 	    $ git rev-parse --verify HEAD
 
 	  which is done within the script "scripts/setlocalversion".)
+
+config LOCALVERSION_BRANCH_SHA
+	bool "Leave only branch name and current tree"
+	default y
+	depends on LOCALVERSION_AUTO
+	depends on !COMPILE_TEST
+	help
+	  A cleaner version of LOCALVERSION_AUTO, contains branch name
+	  and current tree.
+
+config POLLY_CLANG
+	bool "Use Clang Polly optimizations"
+	default y
+	help
+	  This option enables Clang's polyhedral loop optimizer known as
+	  Polly. Polly is able to optimize various loops throughout the
+	  kernel for cache locality. This requires a Clang toolchain
+	  compiled with support for Polly. More information can be found
+	  from Polly's website:
+
+	  https://polly.llvm.org
 
 config HAVE_KERNEL_GZIP
 	bool
@@ -664,7 +693,7 @@ config HAVE_UNSTABLE_SCHED_CLOCK
 config GENERIC_SCHED_CLOCK
 	bool
 
-menu "FAIR Scheuler tunables"
+menu "FAIR Scheduler tunables"
 
 choice
 	prompt "Utilization's PELT half-Life"
@@ -688,12 +717,27 @@ config PELT_UTIL_HALFLIFE_16
 	  decay of utlization and load twice as fast as for the default
 	  configuration using 32ms.
 
+config PELT_UTIL_HALFLIFE_12
+	bool "12 ms, faster"
+	help
+	  Use 12ms as PELT half-life value. This will increase the ramp-up and
+	  decay of utlization, and load faster than using 16ms.
+	  
+config PELT_UTIL_HALFLIFE_14
+	bool "14 ms, slightly faster"
+	help
+	  Use 14ms as PELT half-life value. This will increase the ramp-up and
+	  decay of utlization and load slightly faster than using 16ms.
+
 config PELT_UTIL_HALFLIFE_8
 	bool "8 ms, very fast"
 	help
 	  Use 8ms as PELT half-life value. This will increase the ramp-up and
 	  decay of utlization and load four time as fast as for the default
 	  configuration using 32ms.
+
+config PELT_UTIL_HALFLIFE_4
+	bool "8/4 ms, more faster"
 
 endchoice
 
@@ -1071,6 +1115,23 @@ config NET_NS
 
 endif # NAMESPACES
 
+config SCHED_BORE
+	bool "Burst-Oriented Response Enhancer"
+	default y
+	help
+	  In Desktop and Mobile computing, one might prefer interactive
+	  tasks to keep responsive no matter what they run in the background.
+
+	  Enabling this kernel feature modifies the scheduler to discriminate
+	  tasks by their burst time (runtime since it last went sleeping or
+	  yielding state) and prioritize those that run less bursty.
+	  Such tasks usually include window compositor, widgets backend,
+	  terminal emulator, video playback, games and so on.
+	  With a little impact to scheduling fairness, it may improve
+	  responsiveness especially under heavy background workload.
+
+	  If unsure, say Y here.
+
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
 	select CGROUPS
@@ -1106,6 +1167,24 @@ config SCHED_TUNE
 
 	  If unsure, say N.
 
+config CPUSETS_ASSIST
+	bool "Cpuset configuration helper"
+	depends on CPUSETS
+	depends on ANDROID
+	help
+	  This option enables in-kernel overrides for cpuset values.
+
+	  If unsure, say N.
+
+config STUNE_ASSIST
+	bool "SchedTune configuration helper"
+	depends on SCHED_TUNE
+	depends on ANDROID
+	help
+	  This option enables in-kernel overrides for SchedTune values.
+
+	  If unsure, say N.
+	  
 config DEFAULT_USE_ENERGY_AWARE
 	bool "Default to enabling the Energy Aware Scheduler feature"
 	default n
@@ -1193,21 +1272,33 @@ choice
 	default CC_OPTIMIZE_FOR_PERFORMANCE
 
 config CC_OPTIMIZE_FOR_PERFORMANCE
-	bool "Optimize for performance"
+	bool "Optimize for performance (-O2)"
 	help
 	  This is the default optimization level for the kernel, building
 	  with the "-O2" compiler flag for best performance and most
 	  helpful compile-time warnings.
 
-config CC_OPTIMIZE_FOR_SIZE
-	bool "Optimize for size"
+config CC_OPTIMIZE_FOR_PERFORMANCE_O3
+	bool "Optimize more for performance (-O3)"
 	help
-	  Enabling this option will pass "-Os" instead of "-O2" to
+	  Choosing this option will pass "-O3" to your compiler to optimize
+	  the kernel yet more for performance.
+
+config CC_OPTIMIZE_FOR_SIZE
+	bool "Optimize for size (-Os)"
+	help
+	  Enabling this option will pass "-Os" instead of "-O2" or "-O3" to
 	  your compiler resulting in a smaller kernel.
 
 	  If unsure, say N.
 
 endchoice
+
+config LTO_GCC
+	bool "Enable Link Time Optimization for GCC"
+
+config GCC_GRAPHITE
+	bool "Enable GCC Polyhedral Loop Optimization (Graphite)"
 
 config HAVE_LD_DEAD_CODE_DATA_ELIMINATION
 	bool
@@ -1224,9 +1315,10 @@ config LD_DEAD_CODE_DATA_ELIMINATION
 	depends on HAVE_LD_DEAD_CODE_DATA_ELIMINATION
 	depends on EXPERT
 	help
-	  Enable this if you want to do dead code and data elimination with
-	  the linker by compiling with -ffunction-sections -fdata-sections,
-	  and linking with --gc-sections.
+	  Select this if the architecture wants to do dead code and
+	  data elimination with the linker by compiling with
+	  -ffunction-sections -fdata-sections, and linking with
+	  --gc-sections.
 
 	  This can reduce on disk and in-memory size of the kernel
 	  code and static data, particularly for small configs and
@@ -1550,6 +1642,16 @@ config ADVISE_SYSCALLS
 	  usage, improving performance. If building an embedded system where no
 	  applications use these syscalls, you can disable this option to save
 	  space.
+
+config BPF_UNPRIV_DEFAULT_OFF
+	bool "Disable unprivileged BPF by default"
+	depends on BPF_SYSCALL
+	help
+	  Disables unprivileged BPF by default by setting the corresponding
+	  /proc/sys/kernel/unprivileged_bpf_disabled knob to 2. An admin can
+	  still reenable it by setting it to 0 later on, or permanently
+	  disable it by setting it to 1 (from which no other transition to
+	  0 is possible anymore).
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"

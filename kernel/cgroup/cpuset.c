@@ -22,6 +22,7 @@
  *  distribution for more details.
  */
 
+#include "cgroup-internal.h"
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
 #include <linux/cpuset.h>
@@ -57,6 +58,7 @@
 #include <linux/backing-dev.h>
 #include <linux/sort.h>
 #include <linux/oom.h>
+#include <linux/binfmts.h>
 
 #include <linux/uaccess.h>
 #include <linux/atomic.h>
@@ -136,6 +138,13 @@ struct cpuset {
 	/* for custom sched domain */
 	int relax_domain_level;
 };
+
+#ifdef CONFIG_CPUSETS_ASSIST
+struct cs_target {
+	const char *name;
+	char *cpus;
+};
+#endif
 
 static inline struct cpuset *css_cs(struct cgroup_subsys_state *css)
 {
@@ -695,7 +704,7 @@ static int generate_sched_domains(cpumask_var_t **domains,
 		goto done;
 	}
 
-	csa = kmalloc(nr_cpusets() * sizeof(cp), GFP_KERNEL);
+	csa = kmalloc_array(nr_cpusets(), sizeof(cp), GFP_KERNEL);
 	if (!csa)
 		goto done;
 	csn = 0;
@@ -764,7 +773,8 @@ restart:
 	 * The rest of the code, including the scheduler, can deal with
 	 * dattr==NULL case. No need to abort if alloc fails.
 	 */
-	dattr = kmalloc(ndoms * sizeof(struct sched_domain_attr), GFP_KERNEL);
+	dattr = kmalloc_array(ndoms, sizeof(struct sched_domain_attr),
+			      GFP_KERNEL);
 
 	for (nslot = 0, i = 0; i < csn; i++) {
 		struct cpuset *a = csa[i];
@@ -1296,7 +1306,7 @@ int current_cpuset_is_being_rebound(void)
 static int update_relax_domain_level(struct cpuset *cs, s64 val)
 {
 #ifdef CONFIG_SMP
-	if (val < -1 || val >= sched_domain_level_max)
+	if (val < -1 || val > sched_domain_level_max + 1)
 		return -EINVAL;
 #endif
 
@@ -1531,7 +1541,9 @@ static void cpuset_cancel_attach(struct cgroup_taskset *tset)
 	cs = css_cs(css);
 
 	mutex_lock(&cpuset_mutex);
-	css_cs(css)->attach_in_progress--;
+	cs->attach_in_progress--;
+	if (!cs->attach_in_progress)
+		wake_up(&cpuset_attach_wq);
 	mutex_unlock(&cpuset_mutex);
 }
 
@@ -1555,6 +1567,7 @@ static void cpuset_attach(struct cgroup_taskset *tset)
 	cgroup_taskset_first(tset, &css);
 	cs = css_cs(css);
 
+	cpus_read_lock();
 	mutex_lock(&cpuset_mutex);
 
 	/* prepare for attach */
@@ -1610,6 +1623,7 @@ static void cpuset_attach(struct cgroup_taskset *tset)
 		wake_up(&cpuset_attach_wq);
 
 	mutex_unlock(&cpuset_mutex);
+	cpus_read_unlock();
 }
 
 /* The various types of files and directories in a cpuset file system */
@@ -1712,8 +1726,6 @@ static ssize_t cpuset_write_resmask(struct kernfs_open_file *of,
 	struct cpuset *trialcs;
 	int retval = -ENODEV;
 
-	buf = strstrip(buf);
-
 	/*
 	 * CPU or memory hotunplug may leave @cs w/o any execution
 	 * resources, in which case the hotplug code asynchronously updates
@@ -1766,6 +1778,48 @@ out_unlock:
 	css_put(&cs->css);
 	flush_workqueue(cpuset_migrate_mm_wq);
 	return retval ?: nbytes;
+}
+
+#ifdef CONFIG_CPUSETS_ASSIST
+static ssize_t cpuset_write_resmask_assist(struct kernfs_open_file *of,
+					   struct cs_target tgt, size_t nbytes,
+					   loff_t off)
+{
+	pr_info("cpuset_assist: setting %s to %s\n", tgt.name, tgt.cpus);
+	return cpuset_write_resmask(of, tgt.cpus, nbytes, off);
+}
+#endif
+
+static ssize_t cpuset_write_resmask_wrapper(struct kernfs_open_file *of,
+					 char *buf, size_t nbytes, loff_t off)
+{
+#ifdef CONFIG_CPUSETS_ASSIST
+	static struct cs_target cs_targets[] = {
+		/* Little-only cpusets go first */
+		{ "foreground",		"0-5" },
+		{ "background",		"0-2" },
+		{ "system-background",	"0-3" },
+		{ "restricted",		"0-5" },
+		{ "top-app",		"0-7" },
+		{ "camera-daemon",	"0-3,6-7" },
+	};
+	struct cpuset *cs = css_cs(of_css(of));
+	int i;
+
+	if (task_is_booster(current)) {
+		for (i = 0; i < ARRAY_SIZE(cs_targets); i++) {
+			struct cs_target tgt = cs_targets[i];
+
+			if (!strcmp(cs->css.cgroup->kn->name, tgt.name))
+				return cpuset_write_resmask_assist(of, tgt,
+								   nbytes, off);
+		}
+	}
+#endif
+
+	buf = strstrip(buf);
+
+	return cpuset_write_resmask(of, buf, nbytes, off);
 }
 
 /*
@@ -1860,7 +1914,7 @@ static struct cftype files[] = {
 	{
 		.name = "cpus",
 		.seq_show = cpuset_common_seq_show,
-		.write = cpuset_write_resmask,
+		.write = cpuset_write_resmask_wrapper,
 		.max_write_len = (100U + 6 * NR_CPUS),
 		.private = FILE_CPULIST,
 	},
@@ -2433,8 +2487,11 @@ static struct notifier_block cpuset_track_online_nodes_nb = {
  */
 void __init cpuset_init_smp(void)
 {
-	cpumask_copy(top_cpuset.cpus_allowed, cpu_active_mask);
-	top_cpuset.mems_allowed = node_states[N_MEMORY];
+	/*
+	 * cpus_allowd/mems_allowed set to v2 values in the initial
+	 * cpuset_bind() call will be reset to v1 values in another
+	 * cpuset_bind() call when v1 cpuset is mounted.
+	 */
 	top_cpuset.old_mems_allowed = top_cpuset.mems_allowed;
 
 	cpumask_copy(top_cpuset.effective_cpus, cpu_active_mask);
@@ -2778,10 +2835,14 @@ int proc_cpuset_show(struct seq_file *m, struct pid_namespace *ns,
 	if (!buf)
 		goto out;
 
-	css = task_get_css(tsk, cpuset_cgrp_id);
-	retval = cgroup_path_ns(css->cgroup, buf, PATH_MAX,
-				current->nsproxy->cgroup_ns);
-	css_put(css);
+	rcu_read_lock();
+	spin_lock_irq(&css_set_lock);
+	css = task_css(tsk, cpuset_cgrp_id);
+	retval = cgroup_path_ns_locked(css->cgroup, buf, PATH_MAX,
+				       current->nsproxy->cgroup_ns);
+	spin_unlock_irq(&css_set_lock);
+	rcu_read_unlock();
+
 	if (retval >= PATH_MAX)
 		retval = -ENAMETOOLONG;
 	if (retval < 0)

@@ -306,7 +306,7 @@ int qg_adjust_sys_soc(struct qpnp_qg *chip)
 		rc = qg_get_vbat_avg(chip, &vbat_uv);
 		if (!rc && (vbat_uv >= (vcutoff_uv + VBAT_LOW_HYST_UV))) {
 			soc = 1;
-			qg_dbg(chip, QG_DEBUG_SOC, "vbat_uv=%duV holding SOC to 1%\n",
+			qg_dbg(chip, QG_DEBUG_SOC, "vbat_uv=%duV holding SOC to 1 percent\n",
 						vbat_uv);
 		}
 	}
@@ -427,7 +427,9 @@ static void update_msoc(struct qpnp_qg *chip)
 			chip->msoc += chip->dt.delta_soc;
 	} else if (chip->catch_up_soc < chip->msoc) {
 		/* SOC dropped */
-		chip->msoc -= chip->dt.delta_soc;
+		if ((input_present == false)) {
+			chip->msoc -= chip->dt.delta_soc;
+		}
 	}
 	chip->msoc = CAP(0, 100, chip->msoc);
 

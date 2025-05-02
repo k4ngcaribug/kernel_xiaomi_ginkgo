@@ -661,6 +661,9 @@ static struct scpi_dvfs_info *scpi_dvfs_get_info(u8 domain)
 	if (ret)
 		return ERR_PTR(ret);
 
+	if (!buf.opp_count)
+		return ERR_PTR(-ENOENT);
+
 	info = kmalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return ERR_PTR(-ENOMEM);
@@ -930,7 +933,7 @@ static int scpi_alloc_xfer_list(struct device *dev, struct scpi_chan *ch)
 	int i;
 	struct scpi_xfer *xfers;
 
-	xfers = devm_kzalloc(dev, MAX_SCPI_XFERS * sizeof(*xfers), GFP_KERNEL);
+	xfers = devm_kcalloc(dev, MAX_SCPI_XFERS, sizeof(*xfers), GFP_KERNEL);
 	if (!xfers)
 		return -ENOMEM;
 

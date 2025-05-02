@@ -154,7 +154,7 @@ EXPORT_SYMBOL_GPL(blk_freeze_queue_start);
 
 void blk_mq_freeze_queue_wait(struct request_queue *q)
 {
-	wait_event_interruptible(q->mq_freeze_wq, percpu_ref_is_zero(&q->q_usage_counter));
+	wait_event(q->mq_freeze_wq, percpu_ref_is_zero(&q->q_usage_counter));
 }
 EXPORT_SYMBOL_GPL(blk_mq_freeze_queue_wait);
 
@@ -1359,6 +1359,12 @@ void blk_mq_start_stopped_hw_queue(struct blk_mq_hw_ctx *hctx, bool async)
 		return;
 
 	clear_bit(BLK_MQ_S_STOPPED, &hctx->state);
+	/*
+	 * Pairs with the smp_mb() in blk_mq_hctx_stopped() to order the
+	 * clearing of BLK_MQ_S_STOPPED above and the checking of dispatch
+	 * list in the subsequent routine.
+	 */
+	smp_mb__after_atomic();
 	blk_mq_run_hw_queue(hctx, async);
 }
 EXPORT_SYMBOL_GPL(blk_mq_start_stopped_hw_queue);
@@ -1814,7 +1820,7 @@ struct blk_mq_tags *blk_mq_alloc_rq_map(struct blk_mq_tag_set *set,
 	if (!tags)
 		return NULL;
 
-	tags->rqs = kzalloc_node(nr_tags * sizeof(struct request *),
+	tags->rqs = kcalloc_node(nr_tags, sizeof(struct request *),
 				 GFP_NOIO | __GFP_NOWARN | __GFP_NORETRY,
 				 node);
 	if (!tags->rqs) {
@@ -1822,9 +1828,9 @@ struct blk_mq_tags *blk_mq_alloc_rq_map(struct blk_mq_tag_set *set,
 		return NULL;
 	}
 
-	tags->static_rqs = kzalloc_node(nr_tags * sizeof(struct request *),
-				 GFP_NOIO | __GFP_NOWARN | __GFP_NORETRY,
-				 node);
+	tags->static_rqs = kcalloc_node(nr_tags, sizeof(struct request *),
+					GFP_NOIO | __GFP_NOWARN | __GFP_NORETRY,
+					node);
 	if (!tags->static_rqs) {
 		kfree(tags->rqs);
 		blk_mq_free_tags(tags);
@@ -2420,7 +2426,7 @@ struct request_queue *blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 	/* init q->mq_kobj and sw queues' kobjects */
 	blk_mq_sysfs_init(q);
 
-	q->queue_hw_ctx = kzalloc_node(nr_cpu_ids * sizeof(*(q->queue_hw_ctx)),
+	q->queue_hw_ctx = kcalloc_node(nr_cpu_ids, sizeof(*(q->queue_hw_ctx)),
 						GFP_KERNEL, set->numa_node);
 	if (!q->queue_hw_ctx)
 		goto err_percpu;
@@ -2637,14 +2643,14 @@ int blk_mq_alloc_tag_set(struct blk_mq_tag_set *set)
 	if (set->nr_hw_queues > nr_cpu_ids)
 		set->nr_hw_queues = nr_cpu_ids;
 
-	set->tags = kzalloc_node(nr_cpu_ids * sizeof(struct blk_mq_tags *),
+	set->tags = kcalloc_node(nr_cpu_ids, sizeof(struct blk_mq_tags *),
 				 GFP_KERNEL, set->numa_node);
 	if (!set->tags)
 		return -ENOMEM;
 
 	ret = -ENOMEM;
-	set->mq_map = kzalloc_node(sizeof(*set->mq_map) * nr_cpu_ids,
-			GFP_KERNEL, set->numa_node);
+	set->mq_map = kcalloc_node(nr_cpu_ids, sizeof(*set->mq_map),
+				   GFP_KERNEL, set->numa_node);
 	if (!set->mq_map)
 		goto out_free_tags;
 

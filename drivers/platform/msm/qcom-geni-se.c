@@ -159,7 +159,7 @@ static int geni_se_iommu_map_and_attach(struct geni_se_device *geni_se_dev);
  */
 unsigned int geni_read_reg_nolog(void __iomem *base, int offset)
 {
-	return readl_relaxed_no_log(base + offset);
+	return readl_relaxed(base + offset);
 }
 EXPORT_SYMBOL(geni_read_reg_nolog);
 
@@ -171,7 +171,7 @@ EXPORT_SYMBOL(geni_read_reg_nolog);
  */
 void geni_write_reg_nolog(unsigned int value, void __iomem *base, int offset)
 {
-	return writel_relaxed_no_log(value, (base + offset));
+	return writel_relaxed(value, (base + offset));
 }
 EXPORT_SYMBOL(geni_write_reg_nolog);
 
@@ -1289,8 +1289,9 @@ int geni_se_clk_tbl_get(struct se_geni_rsc *rsc, unsigned long **tbl)
 		goto exit_se_clk_tbl_get;
 	}
 
-	geni_se_dev->clk_perf_tbl = kzalloc(sizeof(*geni_se_dev->clk_perf_tbl) *
-						MAX_CLK_PERF_LEVEL, GFP_KERNEL);
+	geni_se_dev->clk_perf_tbl = kcalloc(MAX_CLK_PERF_LEVEL,
+					    sizeof(*geni_se_dev->clk_perf_tbl),
+					    GFP_KERNEL);
 	if (!geni_se_dev->clk_perf_tbl) {
 		ret = -ENOMEM;
 		goto exit_se_clk_tbl_get;
@@ -1857,8 +1858,10 @@ static struct msm_bus_scale_pdata *ab_ib_register(struct platform_device *pdev,
 
 	for (i = 0; i < pdata->num_usecases; i++) {
 		usecase[i].num_paths = host->num_paths;
-		usecase[i].vectors = devm_kzalloc(dev, host->num_paths *
-			sizeof(struct msm_bus_vectors), GFP_KERNEL);
+		usecase[i].vectors = devm_kcalloc(dev,
+						  host->num_paths,
+						  sizeof(struct msm_bus_vectors),
+						  GFP_KERNEL);
 		if (!usecase[i].vectors) {
 			mem_err = true;
 			pr_err("Error: Mem alloc failure in vectors\n");

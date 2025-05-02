@@ -334,6 +334,10 @@ checkSMB(char *buf, unsigned int total_read, struct TCP_Server_Info *server)
 			cifs_dbg(VFS, "Length less than smb header size\n");
 		}
 		return -EIO;
+	} else if (total_read < sizeof(*smb) + 2 * smb->WordCount) {
+		cifs_dbg(VFS, "%s: can't read BCC due to invalid WordCount(%u)\n",
+			 __func__, smb->WordCount);
+		return -EIO;
 	}
 
 	/* otherwise, there is enough to get to the BCC */
@@ -804,7 +808,7 @@ setup_aio_ctx_iter(struct cifs_aio_ctx *ctx, struct iov_iter *iter, int rw)
 				   GFP_KERNEL);
 
 	if (!bv) {
-		bv = vmalloc(max_pages * sizeof(struct bio_vec));
+		bv = vmalloc(array_size(max_pages, sizeof(struct bio_vec)));
 		if (!bv)
 			return -ENOMEM;
 	}
@@ -814,7 +818,7 @@ setup_aio_ctx_iter(struct cifs_aio_ctx *ctx, struct iov_iter *iter, int rw)
 				      GFP_KERNEL);
 
 	if (!pages) {
-		pages = vmalloc(max_pages * sizeof(struct page *));
+		pages = vmalloc(array_size(max_pages, sizeof(struct page *)));
 		if (!pages) {
 			kvfree(bv);
 			return -ENOMEM;

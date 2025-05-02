@@ -237,7 +237,7 @@ struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu)
 	struct cpufreq_policy *policy = NULL;
 	unsigned long flags;
 
-	if (cpu >= nr_cpu_ids)
+	if (WARN_ON(cpu >= nr_cpu_ids))
 		return NULL;
 
 	/* get the cpufreq driver */
@@ -772,7 +772,7 @@ static ssize_t show_cpuinfo_cur_freq(struct cpufreq_policy *policy,
  */
 static ssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf)
 {
-	if (policy->policy == CPUFREQ_POLICY_POWERSAVE)
+	if ((policy->policy == CPUFREQ_POLICY_POWERSAVE) || is_battery_saver_on())
 		return sprintf(buf, "powersave\n");
 	else if (policy->policy == CPUFREQ_POLICY_PERFORMANCE)
 		return sprintf(buf, "performance\n");
@@ -2257,7 +2257,7 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	* because new_policy is a copy of policy with one field updated.
 	*/
 	if (new_policy->min > new_policy->max)
-		new_policy->min = new_policy->max;
+		return -EINVAL;
 
 	/* verify the cpu speed can be set within this limit */
 	ret = cpufreq_driver->verify(new_policy);

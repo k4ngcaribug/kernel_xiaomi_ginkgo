@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1328,6 +1328,32 @@ out:
 	return 0;
 }
 
+static int icnss_call_driver_remove(struct icnss_priv *priv)
+{
+	icnss_pr_dbg("Calling driver remove state: 0x%lx\n", priv->state);
+
+	clear_bit(ICNSS_FW_READY, &priv->state);
+
+	if (test_bit(ICNSS_DRIVER_UNLOADING, &priv->state))
+		return 0;
+
+	if (!test_bit(ICNSS_DRIVER_PROBED, &priv->state))
+		return 0;
+
+	if (!priv->ops || !priv->ops->remove)
+		return 0;
+
+	set_bit(ICNSS_DRIVER_UNLOADING, &priv->state);
+	priv->ops->remove(&priv->pdev->dev);
+
+	clear_bit(ICNSS_DRIVER_UNLOADING, &priv->state);
+	clear_bit(ICNSS_DRIVER_PROBED, &priv->state);
+
+	icnss_hw_power_off(priv);
+
+	return 0;
+}
+
 static int icnss_fw_crashed(struct icnss_priv *priv,
 			    struct icnss_event_pd_service_down_data *event_data)
 {
@@ -1588,11 +1614,7 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 		atomic_set(&priv->is_shutdown, false);
 		if (!test_bit(ICNSS_PD_RESTART, &priv->state) &&
 		    !test_bit(ICNSS_SHUTDOWN_DONE, &priv->state)) {
-			clear_bit(ICNSS_FW_READY, &priv->state);
-			icnss_driver_event_post(
-				ICNSS_DRIVER_EVENT_UNREGISTER_DRIVER,
-				ICNSS_EVENT_SYNC_UNINTERRUPTIBLE,
-				NULL);
+			icnss_call_driver_remove(priv);
 		}
 	}
 
@@ -2125,8 +2147,8 @@ int icnss_unregister_driver(struct icnss_driver_ops *ops)
 
 	icnss_pr_dbg("Unregistering driver, state: 0x%lx\n", penv->state);
 
-	if (!penv->ops || (!test_bit(ICNSS_DRIVER_PROBED, &penv->state))) {
-		icnss_pr_err("Driver not registered/probed\n");
+	if (!penv->ops) {
+		icnss_pr_err("Driver not registered\n");
 		ret = -ENOENT;
 		goto out;
 	}
@@ -3526,7 +3548,7 @@ static const struct file_operations icnss_regread_fops = {
 	.llseek         = seq_lseek,
 };
 
-#ifdef CONFIG_ICNSS_DEBUG
+#ifdef CONFIG_DEBUG_FS
 static int icnss_debugfs_create(struct icnss_priv *priv)
 {
 	int ret = 0;
@@ -3554,26 +3576,6 @@ static int icnss_debugfs_create(struct icnss_priv *priv)
 
 out:
 	return ret;
-}
-#else
-static int icnss_debugfs_create(struct icnss_priv *priv)
-{
-	int ret = 0;
-	struct dentry *root_dentry;
-
-	root_dentry = debugfs_create_dir("icnss", NULL);
-
-	if (IS_ERR(root_dentry)) {
-		ret = PTR_ERR(root_dentry);
-		icnss_pr_err("Unable to create debugfs %d\n", ret);
-		return ret;
-	}
-
-	priv->root_dentry = root_dentry;
-
-	debugfs_create_file("stats", 0600, root_dentry, priv,
-			    &icnss_stats_fops);
-	return 0;
 }
 #endif
 
@@ -3837,6 +3839,8 @@ static int icnss_probe(struct platform_device *pdev)
 			goto out_unregister_ext_modem;
 	}
 
+	device_enable_async_suspend(dev);
+
 	spin_lock_init(&priv->event_lock);
 	spin_lock_init(&priv->on_off_lock);
 	mutex_init(&priv->dev_lock);
@@ -3859,7 +3863,9 @@ static int icnss_probe(struct platform_device *pdev)
 
 	icnss_enable_recovery(priv);
 
+#ifdef CONFIG_DEBUG_FS
 	icnss_debugfs_create(priv);
+#endif
 
 	icnss_sysfs_create(priv);
 

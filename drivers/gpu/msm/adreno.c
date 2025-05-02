@@ -1,5 +1,5 @@
 /* Copyright (c) 2002,2007-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -103,7 +103,7 @@ static struct adreno_device device_3d0 = {
 	.ft_policy = KGSL_FT_DEFAULT_POLICY,
 	.ft_pf_policy = KGSL_FT_PAGEFAULT_DEFAULT_POLICY,
 	.long_ib_detect = 1,
-	.pwrctrl_flag = BIT(ADRENO_HWCG_CTRL) | BIT(ADRENO_THROTTLING_CTRL),
+	.pwrctrl_flag = BIT(ADRENO_HWCG_CTRL),
 	.profile.enabled = false,
 	.active_list = LIST_HEAD_INIT(device_3d0.active_list),
 	.active_list_lock = __SPIN_LOCK_UNLOCKED(device_3d0.active_list_lock),
@@ -1007,13 +1007,22 @@ static int adreno_of_get_power(struct adreno_device *adreno_dev,
 		&device->pwrctrl.pm_qos_active_latency))
 		device->pwrctrl.pm_qos_active_latency = 501;
 
+	/* get pm-qos-cpu-mask-latency, set it to default if not found */
+	if (of_property_read_u32(node, "qcom,l2pc-cpu-mask-latency",
+		&device->pwrctrl.pm_qos_cpu_mask_latency))
+		device->pwrctrl.pm_qos_cpu_mask_latency = 501;
+
 	/* get pm-qos-wakeup-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,pm-qos-wakeup-latency",
 		&device->pwrctrl.pm_qos_wakeup_latency))
 		device->pwrctrl.pm_qos_wakeup_latency = 101;
 
+#ifdef CONFIG_MACH_XIAOMI_MOJITO
+	timeout = 58;
+#else
 	if (of_property_read_u32(node, "qcom,idle-timeout", &timeout))
-		timeout = 64;
+		timeout = 80;
+#endif
 
 	device->pwrctrl.interval_timeout = msecs_to_jiffies(timeout);
 
@@ -1750,10 +1759,17 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 	/* make sure ADRENO_DEVICE_STARTED is not set here */
 	WARN_ON(test_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv));
 
+	/* disallow l2pc during wake up to improve GPU wake up time */
+	kgsl_pwrctrl_update_l2pc(&adreno_dev->dev,
+			KGSL_L2PC_WAKEUP_TIMEOUT);
+
 	pm_qos_update_request(&device->pwrctrl.pm_qos_req_dma,
 			pmqos_wakeup_vote);
 
 	regulator_left_on = regulators_left_on(device);
+
+	/* Clear any GPU faults that might have been left over */
+	adreno_clear_gpu_fault(adreno_dev);
 
 	/*
 	 * Keep high bus vote to reduce AHB latency
@@ -1789,14 +1805,6 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 	 * halted GPU transactions.
 	 */
 	adreno_deassert_gbif_halt(adreno_dev);
-
-	/*
-	 * Observed race between timeout fault (long IB detection) and
-	 * MISC hang (hard fault). MISC hang can be set while in recovery from
-	 * timeout fault. If fault flag is set in start path CP init fails.
-	 * Clear gpu fault to avoid such race.
-	 */
-	adreno_clear_gpu_fault(adreno_dev);
 
 	if (adreno_is_a640v1(adreno_dev)) {
 		ret = adreno_program_smmu_aperture(device);
@@ -1954,17 +1962,6 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 		}
 	}
 
-	if (gmu_core_gpmu_isenabled(device) &&
-			adreno_dev->perfctr_ifpc_lo == 0) {
-		ret = adreno_perfcounter_get(adreno_dev,
-				KGSL_PERFCOUNTER_GROUP_GPMU_PWR, 4,
-				&adreno_dev->perfctr_ifpc_lo, NULL,
-				PERFCOUNTER_FLAG_KERNEL);
-		if (ret) {
-			WARN_ONCE(1, "Unable to get perf counter for IFPC\n");
-			adreno_dev->perfctr_ifpc_lo = 0;
-		}
-	}
 
 	/* Clear the busy_data stats - we're starting over from scratch */
 	adreno_dev->busy_data.gpu_busy = 0;
@@ -3342,11 +3339,7 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 		if (!(status & fence_mask))
 			return 0;
 		/* Wait a small amount of time before trying again */
-		if (in_atomic())
-			udelay(GMU_CORE_WAKEUP_DELAY_US);
-		else
-			usleep_range(GMU_CORE_WAKEUP_DELAY_US,
-				     3 * GMU_CORE_WAKEUP_DELAY_US);
+		udelay(GMU_CORE_WAKEUP_DELAY_US);
 
 		/* Try to write the fenced register again */
 		adreno_writereg(adreno_dev, offset, val);

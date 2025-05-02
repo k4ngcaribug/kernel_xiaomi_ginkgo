@@ -159,8 +159,8 @@ struct cgroup_subsys_state {
 	atomic_t online_cnt;
 
 	/* percpu_ref killing and RCU release */
+	struct rcu_head rcu_head;
 	struct work_struct destroy_work;
-	struct rcu_work destroy_rwork;
 
 	/*
 	 * PI: the parent css.	Placed here for cache proximity to following
@@ -549,7 +549,7 @@ struct cftype {
 
 /*
  * Control Group subsystem type.
- * See Documentation/cgroup-v1/cgroups.txt for details
+ * See Documentation/cgroups/cgroups.txt for details
  */
 struct cgroup_subsys {
 	struct cgroup_subsys_state *(*css_alloc)(struct cgroup_subsys_state *parent_css);

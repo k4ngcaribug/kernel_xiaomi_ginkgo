@@ -1228,9 +1228,11 @@ struct rpm_regulator *rpm_regulator_get(struct device *dev, const char *supply)
 	 * can be called from the private API functions.
 	 */
 	priv_reg->rdev = kzalloc(sizeof(struct regulator_dev), GFP_KERNEL);
-	if (priv_reg->rdev == NULL)
+	if (priv_reg->rdev == NULL) {
 		kfree(priv_reg);
 		return ERR_PTR(-ENOMEM);
+	}
+
 	priv_reg->rdev->reg_data	= priv_reg;
 	priv_reg->rpm_vreg		= rpm_vreg;
 	priv_reg->rdesc.name		= framework_reg->rdesc.name;
@@ -2040,7 +2042,7 @@ static struct platform_driver rpm_vreg_resource_driver = {
  *
  * Returns 0 on success or errno on failure.
  */
-int __init rpm_smd_regulator_driver_init(void)
+int rpm_smd_regulator_driver_init(void)
 {
 	static bool initialized;
 	int i, rc;

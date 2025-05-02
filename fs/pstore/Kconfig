@@ -15,6 +15,7 @@ config PSTORE
 choice
         prompt "Choose compression algorithm"
         depends on PSTORE
+        optional
         default PSTORE_ZLIB_COMPRESS
         help
           This option chooses compression algorithm.
@@ -51,6 +52,7 @@ config PSTORE_CONSOLE
 config PSTORE_PMSG
 	bool "Log user space messages"
 	depends on PSTORE
+	select RT_MUTEXES
 	help
 	  When the option is enabled, pstore will export a character
 	  interface /dev/pmsg0 to log user space messages. On reboot
@@ -95,4 +97,3 @@ config PSTORE_LAST_KMSG
        help
          When the option is enabled, pstore will export a proc filesystem
          interface /proc/last_kmsg.
-

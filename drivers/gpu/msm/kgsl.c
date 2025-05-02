@@ -1,5 +1,5 @@
 /* Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -346,6 +346,9 @@ static void kgsl_destroy_ion(struct kgsl_memdesc *memdesc)
 				struct kgsl_mem_entry, memdesc);
 	struct kgsl_dma_buf_meta *meta = entry->priv_data;
 
+	if (memdesc->priv & KGSL_MEMDESC_MAPPED)
+		return;
+
 	if (meta != NULL) {
 		remove_dmabuf_list(meta);
 		dma_buf_unmap_attachment(meta->attach, meta->table,
@@ -373,6 +376,9 @@ static void kgsl_destroy_anon(struct kgsl_memdesc *memdesc)
 	int i = 0, j;
 	struct scatterlist *sg;
 	struct page *page;
+
+	if (memdesc->priv & KGSL_MEMDESC_MAPPED)
+		return;
 
 	for_each_sg(memdesc->sgt->sgl, sg, memdesc->sgt->nents, i) {
 		page = sg_page(sg);
@@ -1002,7 +1008,7 @@ struct kgsl_process_private *kgsl_process_private_find(pid_t pid)
 {
 	struct kgsl_process_private *p, *private = NULL;
 
-	spin_lock(&kgsl_driver.proclist_lock);
+	mutex_lock(&kgsl_driver.process_mutex);
 	list_for_each_entry(p, &kgsl_driver.process_list, list) {
 		if (pid_nr(p->pid) == pid) {
 			if (kgsl_process_private_get(p))
@@ -1010,7 +1016,7 @@ struct kgsl_process_private *kgsl_process_private_find(pid_t pid)
 			break;
 		}
 	}
-	spin_unlock(&kgsl_driver.proclist_lock);
+	mutex_unlock(&kgsl_driver.process_mutex);
 	return private;
 }
 
@@ -1117,24 +1123,27 @@ static void kgsl_process_private_close(struct kgsl_device_private *dev_priv,
 	 * directories and garbage collect any outstanding resources
 	 */
 
-	process_release_memory(private);
+	kgsl_process_uninit_sysfs(private);
 
 	/* Release all syncsource objects from process private */
 	kgsl_syncsource_process_release_syncsources(private);
-
-	debugfs_remove_recursive(private->debug_root);
-	kgsl_process_uninit_sysfs(private);
 
 	/* When using global pagetables, do not detach global pagetable */
 	if (private->pagetable->name != KGSL_MMU_GLOBAL_PT)
 		kgsl_mmu_detach_pagetable(private->pagetable);
 
 	/* Remove the process struct from the master list */
-	spin_lock(&kgsl_driver.proclist_lock);
 	list_del(&private->list);
-	spin_unlock(&kgsl_driver.proclist_lock);
 
+	/*
+	 * Unlock the mutex before releasing the memory and the debugfs
+	 * nodes - this prevents deadlocks with the IOMMU and debugfs
+	 * locks.
+	 */
 	mutex_unlock(&kgsl_driver.process_mutex);
+
+	process_release_memory(private);
+	debugfs_remove_recursive(private->debug_root);
 
 	kgsl_process_private_put(private);
 }
@@ -1160,9 +1169,7 @@ static struct kgsl_process_private *kgsl_process_private_open(
 		kgsl_process_init_sysfs(device, private);
 		kgsl_process_init_debugfs(private);
 
-		spin_lock(&kgsl_driver.proclist_lock);
 		list_add(&private->list, &kgsl_driver.process_list);
-		spin_unlock(&kgsl_driver.proclist_lock);
 	}
 
 done:
@@ -2104,7 +2111,7 @@ static long gpumem_free_entry_on_timestamp(struct kgsl_device *device,
 	kgsl_readtimestamp(device, context, KGSL_TIMESTAMP_RETIRED, &temp);
 	trace_kgsl_mem_timestamp_queue(device, entry, context->id, temp,
 		timestamp);
-	ret = kgsl_add_low_prio_event(device, &context->events,
+	ret = kgsl_add_event(device, &context->events,
 		timestamp, gpumem_free_func, entry);
 
 	if (ret)
@@ -2217,8 +2224,13 @@ static long gpuobj_free_on_fence(struct kgsl_device_private *dev_priv,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_FENCE_DEBUG
 	handle = kgsl_sync_fence_async_wait(event.fd,
 		gpuobj_free_fence_func, entry, NULL);
+#else
+	handle = kgsl_sync_fence_async_wait(event.fd,
+		gpuobj_free_fence_func, entry);
+#endif
 
 	if (IS_ERR(handle)) {
 		kgsl_mem_entry_unset_pend(entry);
@@ -4876,7 +4888,6 @@ static const struct file_operations kgsl_fops = {
 
 struct kgsl_driver kgsl_driver  = {
 	.process_mutex = __MUTEX_INITIALIZER(kgsl_driver.process_mutex),
-	.proclist_lock = __SPIN_LOCK_UNLOCKED(kgsl_driver.proclist_lock),
 	.ptlock = __SPIN_LOCK_UNLOCKED(kgsl_driver.ptlock),
 	.devlock = __MUTEX_INITIALIZER(kgsl_driver.devlock),
 	/*
@@ -5035,9 +5046,8 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	}
 
 	status = devm_request_irq(device->dev, device->pwrctrl.interrupt_num,
-				  kgsl_irq_handler,
-				  IRQF_TRIGGER_HIGH | IRQF_PERF_AFFINE,
-				  device->name, device);
+				  kgsl_irq_handler, IRQF_TRIGGER_HIGH |
+				  IRQF_PERF_AFFINE, device->name, device);
 	if (status) {
 		KGSL_DRV_ERR(device, "request_irq(%d) failed: %d\n",
 			      device->pwrctrl.interrupt_num, status);
@@ -5096,6 +5106,16 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 				PM_QOS_CPU_DMA_LATENCY,
 				PM_QOS_DEFAULT_VALUE);
 
+	if (device->pwrctrl.l2pc_cpus_mask) {
+		struct pm_qos_request *qos = &device->pwrctrl.l2pc_cpus_qos;
+
+		qos->type = PM_QOS_REQ_AFFINE_CORES;
+		qos->cpus_affine = device->pwrctrl.l2pc_cpus_mask;
+		pm_qos_add_request(&device->pwrctrl.l2pc_cpus_qos,
+				PM_QOS_CPU_DMA_LATENCY,
+				PM_QOS_DEFAULT_VALUE);
+	}
+
 	device->events_wq = alloc_workqueue("kgsl-events",
 		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI, 0);
 
@@ -5132,6 +5152,8 @@ void kgsl_device_platform_remove(struct kgsl_device *device)
 	kgsl_pwrctrl_uninit_sysfs(device);
 
 	pm_qos_remove_request(&device->pwrctrl.pm_qos_req_dma);
+	if (device->pwrctrl.l2pc_cpus_mask)
+		pm_qos_remove_request(&device->pwrctrl.l2pc_cpus_qos);
 
 	idr_destroy(&device->context_idr);
 
@@ -5173,28 +5195,10 @@ static void kgsl_core_exit(void)
 	unregister_chrdev_region(kgsl_driver.major, KGSL_DEVICE_MAX);
 }
 
-static long kgsl_run_one_worker(struct kthread_worker *worker,
-		struct task_struct **thread, const char *name,
-		const bool perf_crit)
-{
-	kthread_init_worker(worker);
-
-	*thread = perf_crit ? kthread_run_perf_critical(
-		cpu_perf_mask, kthread_worker_fn, worker, name)
-		: kthread_run(kthread_worker_fn, worker, name);
-
-	if (IS_ERR(*thread)) {
-		pr_err("unable to start %s\n", name);
-		return PTR_ERR(thread);
-	}
-
-	return 0;
-}
-
 static int __init kgsl_core_init(void)
 {
 	int result = 0;
-	struct sched_param param = { .sched_priority = 6 };
+	struct sched_param param = { .sched_priority = 16 };
 
 	place_marker("M - DRIVER KGSL Init");
 
@@ -5259,21 +5263,22 @@ static int __init kgsl_core_init(void)
 	INIT_LIST_HEAD(&kgsl_driver.pagetable_list);
 
 	kgsl_driver.workqueue = alloc_workqueue("kgsl-workqueue",
-		WQ_HIGHPRI | WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS, 0);
+		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS, 0);
 
 	kgsl_driver.mem_workqueue = alloc_workqueue("kgsl-mementry",
-		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_FREEZABLE, 0);
+		WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
 
-	if (IS_ERR_VALUE(kgsl_run_one_worker(&kgsl_driver.worker,
-			&kgsl_driver.worker_thread,
-			"kgsl_worker_thread", true)) ||
-		IS_ERR_VALUE(kgsl_run_one_worker(&kgsl_driver.low_prio_worker,
-			&kgsl_driver.low_prio_worker_thread,
-			"kgsl_low_prio_worker_thread", false)))
+	kthread_init_worker(&kgsl_driver.worker);
+
+	kgsl_driver.worker_thread = kthread_run_perf_critical(cpu_perf_mask, kthread_worker_fn,
+		&kgsl_driver.worker, "kgsl_worker_thread");
+
+	if (IS_ERR(kgsl_driver.worker_thread)) {
+		pr_err("unable to start kgsl thread\n");
 		goto err;
+	}
 
-	sched_setscheduler(kgsl_driver.worker_thread, SCHED_RR, &param);
-	/* kgsl_driver.low_prio_worker_thread should not be SCHED_RR */
+	sched_setscheduler(kgsl_driver.worker_thread, SCHED_FIFO, &param);
 
 	kgsl_events_init();
 

@@ -922,7 +922,7 @@ il_init_channel_map(struct il_priv *il)
 	D_EEPROM("Parsing data for %d channels.\n", il->channel_count);
 
 	il->channel_info =
-	    kzalloc(sizeof(struct il_channel_info) * il->channel_count,
+	    kcalloc(il->channel_count, sizeof(struct il_channel_info),
 		    GFP_KERNEL);
 	if (!il->channel_info) {
 		IL_ERR("Could not allocate channel_info\n");
@@ -3041,9 +3041,9 @@ il_tx_queue_init(struct il_priv *il, u32 txq_id)
 	}
 
 	txq->meta =
-	    kzalloc(sizeof(struct il_cmd_meta) * actual_slots, GFP_KERNEL);
+	    kcalloc(actual_slots, sizeof(struct il_cmd_meta), GFP_KERNEL);
 	txq->cmd =
-	    kzalloc(sizeof(struct il_device_cmd *) * actual_slots, GFP_KERNEL);
+	    kcalloc(actual_slots, sizeof(struct il_device_cmd *), GFP_KERNEL);
 
 	if (!txq->meta || !txq->cmd)
 		goto out_free_arrays;
@@ -3455,7 +3455,7 @@ il_init_geos(struct il_priv *il)
 	}
 
 	channels =
-	    kzalloc(sizeof(struct ieee80211_channel) * il->channel_count,
+	    kcalloc(il->channel_count, sizeof(struct ieee80211_channel),
 		    GFP_KERNEL);
 	if (!channels)
 		return -ENOMEM;
@@ -4654,8 +4654,9 @@ il_alloc_txq_mem(struct il_priv *il)
 {
 	if (!il->txq)
 		il->txq =
-		    kzalloc(sizeof(struct il_tx_queue) *
-			    il->cfg->num_of_queues, GFP_KERNEL);
+		    kcalloc(il->cfg->num_of_queues,
+			    sizeof(struct il_tx_queue),
+			    GFP_KERNEL);
 	if (!il->txq) {
 		IL_ERR("Not enough memory for txq\n");
 		return -ENOMEM;
@@ -4985,6 +4986,8 @@ il_pci_resume(struct device *device)
 	 */
 	pci_write_config_byte(pdev, PCI_CFG_RETRY_TIMEOUT, 0x00);
 
+	_il_wr(il, CSR_INT, 0xffffffff);
+	_il_wr(il, CSR_FH_INT_STATUS, 0xffffffff);
 	il_enable_interrupts(il);
 
 	if (!(_il_rd(il, CSR_GP_CNTRL) & CSR_GP_CNTRL_REG_FLAG_HW_RF_KILL_SW))

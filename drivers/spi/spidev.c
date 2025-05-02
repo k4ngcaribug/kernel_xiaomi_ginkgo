@@ -2,7 +2,6 @@
  * Simple synchronous userspace interface to SPI devices
  *
  * Copyright (C) 2006 SWAPP
- * Copyright (C) 2021 XiaoMi, Inc.
  *	Andrea Paterniani <a.paterniani@swapp-eng.it>
  * Copyright (C) 2007 David Brownell (simplification, cleanup)
  *
@@ -124,9 +123,10 @@ spidev_sync_write(struct spidev_data *spidev, size_t len)
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->tx_buffer,
 			.len		= len,
-			.delay_usecs	= 0,
-			.cs_change	= 0,
-			.speed_hz	= 960000,
+			.delay_usecs = 0,
+			.cs_change   = 0,
+			.speed_hz   = 960000,
+
 		};
 	struct spi_message	m;
 
@@ -257,6 +257,7 @@ static int spidev_message(struct spidev_data *spidev,
 	 * We walk the array of user-provided transfers, using each one
 	 * to initialize a kernel version of the same transfer.
 	 */
+
 	if (!spidev->rx_buffer) {
 		spidev->rx_buffer = kmalloc(bufsiz, GFP_KERNEL);
 		if (!spidev->rx_buffer) {
@@ -265,6 +266,7 @@ static int spidev_message(struct spidev_data *spidev,
 			goto rxbuffer_err;
 		}
 	}
+
 	if (!spidev->tx_buffer) {
 		spidev->tx_buffer = kmalloc(bufsiz, GFP_KERNEL);
 		if (!spidev->tx_buffer) {
@@ -367,12 +369,14 @@ static int spidev_message(struct spidev_data *spidev,
 	status = total;
 
 done:
+
 	kfree(spidev->tx_buffer);
 	spidev->tx_buffer = NULL;
 txbuffer_err:
 	kfree(spidev->rx_buffer);
 	spidev->rx_buffer = NULL;
 rxbuffer_err:
+
 	kfree(k_xfers);
 	return status;
 }
@@ -661,6 +665,7 @@ static int spidev_release(struct inode *inode, struct file *filp)
 	/* last close? */
 	spidev->users--;
 	if (!spidev->users) {
+
 		if (dofree)
 			kfree(spidev);
 		else

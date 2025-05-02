@@ -321,7 +321,6 @@ static struct drr_class *drr_classify(struct sk_buff *skb, struct Qdisc *sch,
 		case TC_ACT_STOLEN:
 		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
-			/* fall through */
 		case TC_ACT_SHOT:
 			return NULL;
 		}
@@ -413,7 +412,7 @@ static int drr_init_qdisc(struct Qdisc *sch, struct nlattr *opt)
 	struct drr_sched *q = qdisc_priv(sch);
 	int err;
 
-	err = tcf_block_get(&q->block, &q->filter_list, sch);
+	err = tcf_block_get(&q->block, &q->filter_list);
 	if (err)
 		return err;
 	err = qdisc_class_hash_init(&q->clhash);

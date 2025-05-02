@@ -1753,7 +1753,7 @@ exit_destroy_channel:
 	return -EFAULT;
 }
 
-static int __init spcom_register_chardev(void)
+static int spcom_register_chardev(void)
 {
 	int ret;
 	unsigned int baseminor = 0;
@@ -2072,7 +2072,7 @@ static int spcom_register_rpmsg_drv(struct spcom_channel *ch)
 		return -ENOMEM;
 
 	/* zalloc array of two to NULL terminate the match list */
-	match = kzalloc(2 * sizeof(*match), GFP_KERNEL);
+	match = kcalloc(2, sizeof(*match), GFP_KERNEL);
 	if (!match) {
 		kfree(rpdrv);
 		return -ENOMEM;

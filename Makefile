@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 4
 PATCHLEVEL = 14
-SUBLEVEL = 256
-EXTRAVERSION =
+SUBLEVEL = 356
+EXTRAVERSION = -openela-rc1
 NAME = Petit Gorille
 
 # *DOCUMENTATION*
@@ -88,10 +88,17 @@ endif
 
 # If the user is running make -s (silent mode), suppress echoing of
 # commands
+# make-4.0 (and later) keep single letter options in the 1st word of MAKEFLAGS.
 
-ifneq ($(findstring s,$(filter-out --%,$(MAKEFLAGS))),)
-  quiet=silent_
-  tools_silent=s
+ifeq ($(filter 3.%,$(MAKE_VERSION)),)
+silence:=$(findstring s,$(firstword -$(MAKEFLAGS)))
+else
+silence:=$(findstring s,$(filter-out --%,$(MAKEFLAGS)))
+endif
+
+ifeq ($(silence),s)
+quiet=silent_
+tools_silent=s
 endif
 
 export quiet Q KBUILD_VERBOSE
@@ -274,7 +281,7 @@ include scripts/Kbuild.include
 
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
-KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
+KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))
 export VERSION PATCHLEVEL SUBLEVEL KERNELRELEASE KERNELVERSION
 
 # SUBARCH tells the usermode build what the underlying arch is.  That is set
@@ -371,7 +378,7 @@ HOST_LOADLIBES := $(HOST_LFS_LIBS)
 
 ifeq ($(shell $(HOSTCC) -v 2>&1 | grep -c "clang version"), 1)
 HOSTCFLAGS  += -Wno-unused-value -Wno-unused-parameter \
-		-Wno-missing-field-initializers -Wno-unknown-warning-option
+		-Wno-missing-field-initializers
 endif
 
 # Make variables (CC, etc...)
@@ -380,15 +387,15 @@ LD		= $(CROSS_COMPILE)ld
 CC		= $(CROSS_COMPILE)gcc
 LDGOLD		= $(CROSS_COMPILE)ld.gold
 CPP		= $(CC) -E
-AR		= $(CROSS_COMPILE)ar
-NM		= $(CROSS_COMPILE)nm
+AR             ?= $(CROSS_COMPILE)ar
+NM             ?= $(CROSS_COMPILE)nm
 STRIP		= $(CROSS_COMPILE)strip
 OBJCOPY		= $(CROSS_COMPILE)objcopy
 OBJDUMP		= $(CROSS_COMPILE)objdump
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
-DEPMOD		= /sbin/depmod
+DEPMOD		= depmod
 PERL		= perl
 PYTHON		= python
 CHECK		= sparse
@@ -425,7 +432,6 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -pipe \
 		   -fno-strict-aliasing -fno-common -fshort-wchar \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
-		   -Wno-unknown-warning-option \
 		   -std=gnu89
 ifeq ($(TARGET_BOARD_TYPE),auto)
 KBUILD_CFLAGS    += -DCONFIG_PLATFORM_AUTO
@@ -435,12 +441,15 @@ ifeq ($(CONFIG_EARLY_INIT),true)
 KBUILD_CFLAGS    += -DCONFIG_EARLY_SERVICES
 endif
 
+KBUILD_CFLAGS    += -Werror=vla
+
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS_MODULE  := -DMODULE
 KBUILD_CFLAGS_MODULE  := -DMODULE
 KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
+LDFLAGS :=
 GCC_PLUGINS_CFLAGS :=
 CLANG_FLAGS :=
 
@@ -494,6 +503,27 @@ ifneq ($(KBUILD_SRC),)
 endif
 
 ifeq ($(cc-name),clang)
+ifdef CONFIG_POLLY_CLANG
+KBUILD_CFLAGS	+= -mllvm -polly \
+		   -mllvm -polly-ast-use-context \
+		   -mllvm -polly-invariant-load-hoisting \
+		   -mllvm -polly-run-inliner \
+		   -mllvm -polly-vectorizer=stripmine
+ifeq ($(shell test $(CONFIG_CLANG_VERSION) -gt 130000; echo $$?),0)
+KBUILD_CFLAGS	+= -mllvm -polly-loopfusion-greedy=1 \
+		   -mllvm -polly-reschedule=1 \
+		   -mllvm -polly-postopts=1
+else
+KBUILD_CFLAGS	+= -mllvm -polly-opt-fusion=max
+endif
+# Polly may optimise loops with dead paths beyound what the linker
+# can understand. This may negate the effect of the linker's DCE
+# so we tell Polly to perfom proven DCE on the loops it optimises
+# in order to preserve the overall effect of the linker's DCE.
+ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
+KBUILD_CFLAGS	+= -mllvm -polly-run-dce
+endif
+endif
 ifneq ($(CROSS_COMPILE),)
 CLANG_TRIPLE	?= $(CROSS_COMPILE)
 CLANG_FLAGS	+= --target=$(notdir $(CLANG_TRIPLE:%-=%))
@@ -507,7 +537,8 @@ endif
 ifneq ($(GCC_TOOLCHAIN),)
 CLANG_FLAGS	+= --gcc-toolchain=$(GCC_TOOLCHAIN)
 endif
-CLANG_FLAGS	+= -integrated-as
+CLANG_FLAGS	+= -no-integrated-as
+CLANG_FLAGS	+= -Werror=unknown-warning-option
 CLANG_FLAGS	+= $(call cc-option, -Wno-misleading-indentation)
 CLANG_FLAGS	+= $(call cc-option, -Wno-bool-operation)
 CLANG_FLAGS	+= $(call cc-option, -Wno-unsequenced)
@@ -677,22 +708,32 @@ LDFINAL_vmlinux := $(LD)
 LD		:= $(LDGOLD)
 LDFLAGS		+= -plugin LLVMgold.so
 endif
-
 # use llvm-ar for building symbol tables from IR files, and llvm-dis instead
 # of objdump for processing symbol versions and exports
-ifneq ($(findstring llvm-ar,$(AR)),)
-LLVM_AR		:= $(AR)
-else
 LLVM_AR		:= llvm-ar
-endif
-
-ifneq ($(findstring llvm-nm,$(NM)),)
-LLVM_NM		:= $(NM)
-else
 LLVM_NM		:= llvm-nm
+export LLVM_AR LLVM_NM
 endif
 
-export LLVM_AR LLVM_NM
+ifdef CONFIG_LTO_GCC
+LTO_CFLAGS	:= -flto -flto=jobserver -fipa-pta -fno-fat-lto-objects \
+		   -fuse-linker-plugin -fwhole-program
+KBUILD_CFLAGS	+= $(LTO_CFLAGS) --param=max-inline-insns-auto=1000
+LTO_LDFLAGS	:= $(LTO_CFLAGS) -Wno-lto-type-mismatch -Wno-psabi \
+		   -Wno-stringop-overflow -Wno-stringop-overread -flinker-output=nolto-rel \
+		   -Wno-aggressive-loop-optimizations
+LDFINAL		:= $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld $(LTO_LDFLAGS)
+AR		:= $(CROSS_COMPILE)gcc-ar
+NM		:= $(CROSS_COMPILE)gcc-nm
+DISABLE_LTO	:= -fno-lto
+export DISABLE_LTO LDFINAL
+else
+LDFINAL		:= $(LD)
+export LDFINAL
+endif
+
+ifdef CONFIG_GCC_GRAPHITE
+KBUILD_CFLAGS	+= -fgraphite-identity -floop-nest-optimize
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -702,6 +743,12 @@ ARCH_AFLAGS :=
 ARCH_CFLAGS :=
 include arch/$(SRCARCH)/Makefile
 
+ifeq ($(cc-name),gcc)
+KBUILD_CFLAGS += -mtune=cortex-a73.cortex-a53 -march=armv8-a
+else ifeq ($(cc-name),clang)
+KBUILD_CFLAGS += -mcpu=cortex-a53 -mtune=cortex-a53
+endif
+
 KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
@@ -709,40 +756,20 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, packed-not-aligned)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, psabi)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, restrict)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, stringop-overflow)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, stringop-truncation)
+KBUILD_CFLAGS	+= $(call cc-disable-warning, zero-length-bounds)
 
-ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS   += -Os
-else
+ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+KBUILD_CFLAGS   += -O2
+else ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3
 KBUILD_CFLAGS   += -O3
-ifeq ($(cc-name),clang)
-KBUILD_CFLAGS	+= -mcpu=cortex-a53 -mtune=cortex-a53
-
-ifdef CONFIG_LLVM_POLLY
-KBUILD_CFLAGS	+= -mllvm -polly \
-		   -mllvm -polly-run-inliner \
-		   -mllvm -polly-ast-use-context \
-		   -mllvm -polly-detect-keep-going \
-		   -mllvm -polly-invariant-load-hoisting \
-		   -mllvm -polly-vectorizer=stripmine \
-		   -mllvm -polly-loopfusion-greedy=1 \
-		   -mllvm -polly-reschedule=1 \
-		   -mllvm -polly-postopts=1 \
-		   -mllvm -polly-num-threads=0 \
-		   -mllvm -polly-omp-backend=LLVM \
-		   -mllvm -polly-scheduling=dynamic \
-		   -mllvm -polly-scheduling-chunksize=1
-
-# Polly may optimise loops with dead paths beyound what the linker
-# can understand. This may negate the effect of the linker's DCE
-# so we tell Polly to perfom proven DCE on the loops it optimises
-# in order to preserve the overall effect of the linker's DCE.
-ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
-KBUILD_CFLAGS	+= -mllvm -polly-run-dce
+else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
+KBUILD_CFLAGS   += -Os
 endif
-endif # CONFIG_LLVM_POLLY
-
-endif # $(cc-name),clang
-endif # CONFIG_CC_OPTIMIZE_FOR_SIZE
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
@@ -797,8 +824,10 @@ ifeq ($(cc-name),clang)
 KBUILD_CFLAGS += $(call cc-disable-warning, format-invalid-specifier)
 KBUILD_CFLAGS += $(call cc-disable-warning, gnu)
 KBUILD_CFLAGS += $(call cc-disable-warning, duplicate-decl-specifier)
+KBUILD_CFLAGS += -fno-builtin
 KBUILD_CFLAGS += $(call cc-option, -Wno-undefined-optimized)
 KBUILD_CFLAGS += $(call cc-option, -Wno-tautological-constant-out-of-range-compare)
+KBUILD_CFLAGS += $(call cc-option, -mllvm -disable-struct-const-merge)
 KBUILD_CFLAGS += $(call cc-option, -Wno-sometimes-uninitialized)
 
 # Quiet clang warning: comparison of unsigned expression < 0 is always false
@@ -817,10 +846,14 @@ KBUILD_CFLAGS += $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
 
 ifeq ($(ld-name),lld)
-LDFLAGS += --lto-O3
+LDFLAGS += -O2
 endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
+
+# These result in bogus false positives
+KBUILD_CFLAGS += $(call cc-disable-warning, dangling-pointer)
+
 ifdef CONFIG_FRAME_POINTER
 KBUILD_CFLAGS	+= -fno-omit-frame-pointer -fno-optimize-sibling-calls
 else
@@ -844,7 +877,7 @@ ifdef CONFIG_INIT_STACK_ALL_ZERO
 # https://bugs.llvm.org/show_bug.cgi?id=45497. These flags are subject to being
 # renamed or dropped.
 KBUILD_CFLAGS  += -ftrivial-auto-var-init=zero
-KBUILD_CFLAGS  += -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
+KBUILD_CFLAGS  += $(call cc-option, -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang)
 endif
 
 KBUILD_CFLAGS   += $(call cc-option, -fno-var-tracking-assignments)
@@ -995,6 +1028,15 @@ KBUILD_CFLAGS += $(call cc-disable-warning, maybe-uninitialized)
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= $(call cc-option,-fno-strict-overflow)
 
+# clang sets -fmerge-all-constants by default as optimization, but this
+# is non-conforming behavior for C and in fact breaks the kernel, so we
+# need to disable it here generally.
+KBUILD_CFLAGS	+= $(call cc-option,-fno-merge-all-constants)
+
+# for gcc -fno-merge-all-constants disables everything, but it is fine
+# to have actual conforming behavior enabled.
+KBUILD_CFLAGS	+= $(call cc-option,-fmerge-constants)
+
 # Make sure -fstack-check isn't enabled (like gentoo apparently did)
 KBUILD_CFLAGS  += $(call cc-option,-fno-stack-check,)
 
@@ -1037,6 +1079,9 @@ LDFLAGS_vmlinux += $(LDFLAGS_BUILD_ID)
 ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 LDFLAGS_vmlinux	+= $(call ld-option, --gc-sections,)
 endif
+
+LDFLAGS	+= -z noexecstack
+LDFLAGS	+= $(call ld-option,--no-warn-rwx-segments)
 
 ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
 LDFLAGS_vmlinux	+= $(call ld-option, -X,)
@@ -1420,7 +1465,7 @@ headers_install: __headers
 	  $(error Headers not exportable for the $(SRCARCH) architecture))
 	$(Q)$(MAKE) $(hdr-inst)=include/uapi dst=include
 	$(Q)$(MAKE) $(hdr-inst)=arch/$(hdr-arch)/include/uapi $(hdr-dst)
-	$(Q)$(MAKE) $(hdr-inst)=techpack/audio/include/uapi dst=techpack/audio/include
+	$(Q)$(MAKE) $(hdr-inst)=techpack
 
 PHONY += headers_check_all
 headers_check_all: headers_install_all
@@ -1430,7 +1475,7 @@ PHONY += headers_check
 headers_check: headers_install
 	$(Q)$(MAKE) $(hdr-inst)=include/uapi dst=include HDRCHECK=1
 	$(Q)$(MAKE) $(hdr-inst)=arch/$(hdr-arch)/include/uapi $(hdr-dst) HDRCHECK=1
-	$(Q)$(MAKE) $(hdr-inst)=techpack/audio/include/uapi dst=techpack/audio/include HDRCHECK=1
+	$(Q)$(MAKE) $(hdr-inst)=techpack HDRCHECK=1
 
 # ---------------------------------------------------------------------------
 # Kernel selftest

@@ -1510,6 +1510,7 @@ static int max98927_dai_set_sysclk(struct snd_soc_dai *dai,
 	return 0;
 }
 
+/*20191205 add by wzg for HTH-62380 low temperature and biggest volume occur pop voice start */
 static int max98927_regmap_write(struct regmap *map, unsigned int reg, unsigned int val)
 {
     int i;
@@ -1526,6 +1527,7 @@ static int max98927_regmap_write(struct regmap *map, unsigned int reg, unsigned 
 
     return rc;
 }
+/*20191205 add by wzg for HTH-62380 low temperature and biggest volume occur pop voice end */
 
 static int max98927_stream_mute(struct snd_soc_dai *codec_dai, int mute, int stream)
 {
@@ -1584,6 +1586,7 @@ static int max98927_stream_mute(struct snd_soc_dai *codec_dai, int mute, int str
 						}
 						regmap_update_bits(max98927->regmap[i], amp_enable, 1, 1);
 						regmap_update_bits(max98927->regmap[i], global_enable, 1, 1);
+						//20191205 add by wzg for HTH-62380 low temperature and biggest volume occur pop voice
 						max98927_regmap_write(max98927->regmap[i], 0x0600,0x54);
 						max98927_regmap_write(max98927->regmap[i], 0x0600,0x4D);
 						max98927_regmap_write(max98927->regmap[i], 0x030d,0x40);

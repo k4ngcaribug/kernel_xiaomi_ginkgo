@@ -463,10 +463,7 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 		int ret = -1;
 
 		if (qstr) {
-			if (ext4_hash_in_dirent(parent))
-				hinfo.hash_version = DX_HASH_SIPHASH;
-			else
-				hinfo.hash_version = DX_HASH_HALF_MD4;
+			hinfo.hash_version = DX_HASH_HALF_MD4;
 			hinfo.seed = sbi->s_hash_seed;
 			ext4fs_dirhash(parent, qstr->name, qstr->len, &hinfo);
 			grp = hinfo.hash;
@@ -516,11 +513,13 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 		goto fallback;
 	}
 
-	max_dirs = ndirs / ngroups + inodes_per_group / 16;
+	max_dirs = ndirs / ngroups + inodes_per_group*flex_size / 16;
 	min_inodes = avefreei - inodes_per_group*flex_size / 4;
 	if (min_inodes < 1)
 		min_inodes = 1;
 	min_clusters = avefreec - EXT4_CLUSTERS_PER_GROUP(sb)*flex_size / 4;
+	if (min_clusters < 0)
+		min_clusters = 0;
 
 	/*
 	 * Start looking in the flex group where we last allocated an
@@ -1127,7 +1126,9 @@ got:
 			   inode->i_ino);
 		goto out;
 	}
-	inode->i_generation = prandom_u32();
+	spin_lock(&sbi->s_next_gen_lock);
+	inode->i_generation = sbi->s_next_generation++;
+	spin_unlock(&sbi->s_next_gen_lock);
 
 	/* Precompute checksum seed for inode metadata */
 	if (ext4_has_metadata_csum(sb)) {

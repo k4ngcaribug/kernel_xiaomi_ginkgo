@@ -262,14 +262,20 @@ void __init memblock_discard(void)
 		addr = __pa(memblock.reserved.regions);
 		size = PAGE_ALIGN(sizeof(struct memblock_region) *
 				  memblock.reserved.max);
-		__memblock_free_late(addr, size);
+		if (memblock_reserved_in_slab)
+			kfree(memblock.reserved.regions);
+		else
+			__memblock_free_late(addr, size);
 	}
 
 	if (memblock.memory.regions != memblock_memory_init_regions) {
 		addr = __pa(memblock.memory.regions);
 		size = PAGE_ALIGN(sizeof(struct memblock_region) *
 				  memblock.memory.max);
-		__memblock_free_late(addr, size);
+		if (memblock_memory_in_slab)
+			kfree(memblock.memory.regions);
+		else
+			__memblock_free_late(addr, size);
 	}
 }
 #endif
@@ -1895,10 +1901,13 @@ static int __init memblock_init_debugfs(void)
 	struct dentry *root = debugfs_create_dir("memblock", NULL);
 	if (!root)
 		return -ENXIO;
-	debugfs_create_file("memory", S_IRUGO, root, &memblock.memory, &memblock_debug_fops);
-	debugfs_create_file("reserved", S_IRUGO, root, &memblock.reserved, &memblock_debug_fops);
+	debugfs_create_file("memory", 0444, root,
+			    &memblock.memory, &memblock_debug_fops);
+	debugfs_create_file("reserved", 0444, root,
+			    &memblock.reserved, &memblock_debug_fops);
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
-	debugfs_create_file("physmem", S_IRUGO, root, &memblock.physmem, &memblock_debug_fops);
+	debugfs_create_file("physmem", 0444, root,
+			    &memblock.physmem, &memblock_debug_fops);
 #endif
 
 	return 0;

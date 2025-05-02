@@ -4601,7 +4601,7 @@ pmcraid_register_interrupt_handler(struct pmcraid_instance *pinstance)
 	return 0;
 
 out_unwind:
-	while (--i > 0)
+	while (--i >= 0)
 		free_irq(pci_irq_vector(pdev, i), &pinstance->hrrq_vector[i]);
 	pci_free_irq_vectors(pdev);
 	return rc;
@@ -4915,8 +4915,9 @@ static int pmcraid_allocate_config_buffers(struct pmcraid_instance *pinstance)
 	int i;
 
 	pinstance->res_entries =
-			kzalloc(sizeof(struct pmcraid_resource_entry) *
-				PMCRAID_MAX_RESOURCES, GFP_KERNEL);
+			kcalloc(PMCRAID_MAX_RESOURCES,
+				sizeof(struct pmcraid_resource_entry),
+				GFP_KERNEL);
 
 	if (NULL == pinstance->res_entries) {
 		pmcraid_err("failed to allocate memory for resource table\n");

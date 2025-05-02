@@ -2,7 +2,6 @@
  * gadget.c - DesignWare USB3 DRD Controller Gadget Framework Link
  *
  * Copyright (C) 2010-2011 Texas Instruments Incorporated - http://www.ti.com
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Authors: Felipe Balbi <balbi@ti.com>,
  *	    Sebastian Andrzej Siewior <bigeasy@linutronix.de>
@@ -37,7 +36,10 @@
 #include "gadget.h"
 #include "io.h"
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 #define DWC3_SOFT_RESET_TIMEOUT	10 /* 10 msec */
+#endif
+
 static void dwc3_gadget_wakeup_interrupt(struct dwc3 *dwc, bool remote_wakeup);
 static int dwc3_gadget_wakeup_int(struct dwc3 *dwc);
 static int __dwc3_gadget_start(struct dwc3 *dwc);
@@ -396,7 +398,7 @@ int dwc3_send_gadget_ep_cmd(struct dwc3_ep *dep, unsigned cmd,
 {
 	const struct usb_endpoint_descriptor *desc = dep->endpoint.desc;
 	struct dwc3		*dwc = dep->dwc;
-	u32			timeout = 3000;
+	u32			timeout = 5000;
 	u32			saved_config = 0;
 	u32			reg;
 
@@ -1146,8 +1148,8 @@ static void __dwc3_prepare_one_trb(struct dwc3_ep *dep, struct dwc3_trb *trb,
 			trb->ctrl = DWC3_TRBCTL_ISOCHRONOUS;
 		}
 
-		/* always enable Interrupt on Missed ISOC */
-		trb->ctrl |= DWC3_TRB_CTRL_ISP_IMI;
+		if (!no_interrupt && !chain)
+			trb->ctrl |= DWC3_TRB_CTRL_ISP_IMI;
 		break;
 
 	case USB_ENDPOINT_XFER_BULK:
@@ -1186,11 +1188,18 @@ static void __dwc3_prepare_one_trb(struct dwc3_ep *dep, struct dwc3_trb *trb,
 		trb->ctrl |= DWC3_TRB_CTRL_SID_SOFN(stream_id);
 
 	/*
-	 * Ensure that updates of buffer address and size happens
-	 * before we set the DWC3_TRB_CTRL_HWO so that core
-	 * does not process any stale TRB.
+	 * As per data book 4.2.3.2TRB Control Bit Rules section
+	 *
+	 * The controller autonomously checks the HWO field of a TRB to determine if the
+	 * entire TRB is valid. Therefore, software must ensure that the rest of the TRB
+	 * is valid before setting the HWO field to '1'. In most systems, this means that
+	 * software must update the fourth DWORD of a TRB last.
+	 *
+	 * However there is a possibility of CPU re-ordering here which can cause
+	 * controller to observe the HWO bit set prematurely.
+	 * Add a write memory barrier to prevent CPU re-ordering.
 	 */
-	mb();
+	wmb();
 	trb->ctrl |= DWC3_TRB_CTRL_HWO;
 
 	dwc3_ep_inc_enq(dep);
@@ -2161,12 +2170,6 @@ done:
 	/* phy sync delay as per data book */
 	msleep(50);
 
-	/*
-	 * Soft reset clears the block on the doorbell,
-	 * set it back to prevent unwanted writes to the doorbell.
-	 */
-	dwc3_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_CLEAR_DB, 0);
-
 	return 0;
 }
 
@@ -2176,7 +2179,10 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 {
 	u32			reg, reg1;
 	u32			timeout = 1500;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	ktime_t			start, diff;
+#endif
+
 	dbg_event(0xFF, "run_stop", is_on);
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 	if (is_on) {
@@ -2188,6 +2194,7 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 		if (dwc->revision >= DWC3_REVISION_194A)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		start = ktime_get(); 
 		/* issue device SoftReset */ 
 		dwc3_writel(dwc->regs, DWC3_DCTL, reg | DWC3_DCTL_CSFTRST); 
@@ -2195,7 +2202,7 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 			reg = dwc3_readl(dwc->regs, DWC3_DCTL); 
 			if (!(reg & DWC3_DCTL_CSFTRST)) 
 			break; 
- 
+
 			diff = ktime_sub(ktime_get(), start); 
 			/* poll for max. 10ms */ 
 			if (ktime_to_ms(diff) > DWC3_SOFT_RESET_TIMEOUT) { 
@@ -2204,8 +2211,9 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 			break; 
 		} 
 			cpu_relax(); 
-		} while (true); 
- 
+		} while (true);
+#endif
+
 		dwc3_event_buffers_setup(dwc);
 		__dwc3_gadget_start(dwc);
 
@@ -2352,9 +2360,6 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 
 	/* prevent pending bh to run later */
 	flush_work(&dwc->bh_work);
-
-	if (is_on)
-		dwc3_device_core_soft_reset(dwc);
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	if (dwc->ep0state != EP0_SETUP_PHASE)
@@ -2901,8 +2906,7 @@ static int __dwc3_cleanup_done_trbs(struct dwc3 *dwc, struct dwc3_ep *dep,
 	 */
 	if ((req->zero || req->unaligned) && !(trb->ctrl & DWC3_TRB_CTRL_CHN)) {
 		trb->ctrl &= ~DWC3_TRB_CTRL_HWO;
-		return (((event->status & DEPEVT_STATUS_IOC) &&
-				(trb->ctrl & DWC3_TRB_CTRL_IOC)) ? 1 : 0);
+		return 1;
 	}
 
 	count = trb->size & DWC3_TRB_SIZE_MASK;
@@ -3369,6 +3373,24 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	u32			reg;
 
 	usb_phy_start_link_training(dwc->usb3_phy);
+
+	/*
+	 * Ideally, dwc3_reset_gadget() would trigger the function
+	 * drivers to stop any active transfers through ep disable.
+	 * However, for functions which defer ep disable, such as mass
+	 * storage, we will need to rely on the call to stop active
+	 * transfers here, and avoid allowing of request queuing.
+	 */
+	dwc->connected = false;
+
+	/*
+	 * Ideally, dwc3_reset_gadget() would trigger the function
+	 * drivers to stop any active transfers through ep disable.
+	 * However, for functions which defer ep disable, such as mass
+	 * storage, we will need to rely on the call to stop active
+	 * transfers here, and avoid allowing of request queuing.
+	 */
+	dwc->connected = false;
 
 	/*
 	 * Ideally, dwc3_reset_gadget() would trigger the function
@@ -3924,7 +3946,6 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3_event_buffer *evt)
 
 	dwc->bh_handled_evt_cnt[dwc->irq_dbg_index] += (evt->count / 4);
 	evt->count = 0;
-	evt->flags &= ~DWC3_EVENT_PENDING;
 	ret = IRQ_HANDLED;
 
 	/* Unmask interrupt */
@@ -3936,6 +3957,9 @@ static irqreturn_t dwc3_process_event_buf(struct dwc3_event_buffer *evt)
 		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), DWC3_GEVNTCOUNT_EHB);
 		dwc3_writel(dwc->regs, DWC3_DEV_IMOD(0), dwc->imod_interval);
 	}
+
+	/* Keep the clearing of DWC3_EVENT_PENDING at the end */
+	evt->flags &= ~DWC3_EVENT_PENDING;
 
 	return ret;
 }
@@ -3959,10 +3983,12 @@ static irqreturn_t dwc3_thread_interrupt(int irq, void *_evt)
 
 	start_time = ktime_get();
 
+	local_bh_disable();
 	spin_lock_irqsave(&dwc->lock, flags);
 	dwc->bh_handled_evt_cnt[dwc->irq_dbg_index] = 0;
 	ret = dwc3_process_event_buf(evt);
 	spin_unlock_irqrestore(&dwc->lock, flags);
+	local_bh_enable();
 
 	dwc->bh_completion_time[dwc->irq_dbg_index] =
 		ktime_to_us(ktime_sub(ktime_get(), start_time));
@@ -4263,6 +4289,8 @@ void dwc3_gadget_process_pending_events(struct dwc3 *dwc)
 {
 	if (dwc->pending_events) {
 		dwc3_interrupt(dwc->irq_gadget, dwc->ev_buf);
+		dwc3_thread_interrupt(dwc->irq_gadget, dwc->ev_buf);
+		pm_runtime_put(dwc->dev);
 		dwc->pending_events = false;
 		enable_irq(dwc->irq_gadget);
 	}

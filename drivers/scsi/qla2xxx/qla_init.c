@@ -2842,8 +2842,9 @@ qla2x00_alloc_outstanding_cmds(struct qla_hw_data *ha, struct req_que *req)
 			req->num_outstanding_cmds = ha->cur_fw_iocb_count;
 	}
 
-	req->outstanding_cmds = kzalloc(sizeof(srb_t *) *
-	    req->num_outstanding_cmds, GFP_KERNEL);
+	req->outstanding_cmds = kcalloc(req->num_outstanding_cmds,
+					sizeof(srb_t *),
+					GFP_KERNEL);
 
 	if (!req->outstanding_cmds) {
 		/*
@@ -2851,8 +2852,9 @@ qla2x00_alloc_outstanding_cmds(struct qla_hw_data *ha, struct req_que *req)
 		 * initialization.
 		 */
 		req->num_outstanding_cmds = MIN_OUTSTANDING_COMMANDS;
-		req->outstanding_cmds = kzalloc(sizeof(srb_t *) *
-		    req->num_outstanding_cmds, GFP_KERNEL);
+		req->outstanding_cmds = kcalloc(req->num_outstanding_cmds,
+						sizeof(srb_t *),
+						GFP_KERNEL);
 
 		if (!req->outstanding_cmds) {
 			ql_log(ql_log_fatal, NULL, 0x0126,
@@ -3315,6 +3317,12 @@ qla24xx_update_fw_options(scsi_qla_host_t *vha)
 			ha->fw_options[2] |= BIT_4;
 		else
 			ha->fw_options[2] &= ~BIT_4;
+
+		/* Reserve 1/2 of emergency exchanges for ELS.*/
+		if (qla2xuseresexchforels)
+			ha->fw_options[2] |= BIT_8;
+		else
+			ha->fw_options[2] &= ~BIT_8;
 	}
 
 	ql_dbg(ql_dbg_init, vha, 0x00e8,
@@ -8037,7 +8045,7 @@ struct qla_qpair *qla2xxx_create_qpair(struct scsi_qla_host *vha, int qos,
 		qpair->rsp->req = qpair->req;
 		qpair->rsp->qpair = qpair;
 		/* init qpair to this cpu. Will adjust at run time. */
-		qla_cpu_update(qpair, smp_processor_id());
+		qla_cpu_update(qpair, raw_smp_processor_id());
 
 		if (IS_T10_PI_CAPABLE(ha) && ql2xenabledif) {
 			if (ha->fw_attributes & BIT_4)

@@ -830,9 +830,10 @@ static int virtscsi_init(struct virtio_device *vdev,
 	struct irq_affinity desc = { .pre_vectors = 2 };
 
 	num_vqs = vscsi->num_queues + VIRTIO_SCSI_VQ_BASE;
-	vqs = kmalloc(num_vqs * sizeof(struct virtqueue *), GFP_KERNEL);
-	callbacks = kmalloc(num_vqs * sizeof(vq_callback_t *), GFP_KERNEL);
-	names = kmalloc(num_vqs * sizeof(char *), GFP_KERNEL);
+	vqs = kmalloc_array(num_vqs, sizeof(struct virtqueue *), GFP_KERNEL);
+	callbacks = kmalloc_array(num_vqs, sizeof(vq_callback_t *),
+				  GFP_KERNEL);
+	names = kmalloc_array(num_vqs, sizeof(char *), GFP_KERNEL);
 
 	if (!callbacks || !vqs || !names) {
 		err = -ENOMEM;
@@ -891,6 +892,7 @@ static int virtscsi_probe(struct virtio_device *vdev)
 
 	/* We need to know how many queues before we allocate. */
 	num_queues = virtscsi_config_get(vdev, num_queues) ? : 1;
+	num_queues = min_t(unsigned int, nr_cpu_ids, num_queues);
 
 	num_targets = virtscsi_config_get(vdev, max_target) + 1;
 

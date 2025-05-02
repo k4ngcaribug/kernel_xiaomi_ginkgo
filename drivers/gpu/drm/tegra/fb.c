@@ -123,7 +123,7 @@ static struct tegra_fb *tegra_fb_alloc(struct drm_device *drm,
 	if (!fb)
 		return ERR_PTR(-ENOMEM);
 
-	fb->planes = kzalloc(num_planes * sizeof(*planes), GFP_KERNEL);
+	fb->planes = kcalloc(num_planes, sizeof(*planes), GFP_KERNEL);
 	if (!fb->planes) {
 		kfree(fb);
 		return ERR_PTR(-ENOMEM);
@@ -179,6 +179,7 @@ struct drm_framebuffer *tegra_fb_create(struct drm_device *drm,
 
 		if (gem->size < size) {
 			err = -EINVAL;
+			drm_gem_object_put(gem);
 			goto unreference;
 		}
 

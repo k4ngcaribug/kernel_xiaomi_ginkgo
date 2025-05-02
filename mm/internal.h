@@ -104,7 +104,7 @@ extern unsigned long highest_memmap_pfn;
  * Maximum number of reclaim retries without progress before the OOM
  * killer is consider the only way forward.
  */
-#define MAX_RECLAIM_RETRIES 16
+#define MAX_RECLAIM_RETRIES 32
 
 /*
  * in mm/vmscan.c:
@@ -187,8 +187,6 @@ extern void prep_compound_page(struct page *page, unsigned int order);
 extern void post_alloc_hook(struct page *page, unsigned int order,
 					gfp_t gfp_flags);
 extern int user_min_free_kbytes;
-extern atomic_long_t kswapd_waiters;
-extern atomic_long_t kshrinkd_waiters;
 
 #if defined CONFIG_COMPACTION || defined CONFIG_CMA
 
@@ -234,7 +232,7 @@ unsigned long
 isolate_migratepages_range(struct compact_control *cc,
 			   unsigned long low_pfn, unsigned long end_pfn);
 int find_suitable_fallback(struct free_area *area, unsigned int order,
-			int migratetype, bool only_stealable, bool *can_steal, unsigned int start_order);
+			int migratetype, bool only_stealable, bool *can_steal);
 
 #endif
 

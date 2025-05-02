@@ -1,5 +1,4 @@
 /* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -43,7 +42,9 @@
 #include "qg-battery-profile.h"
 #include "qg-defs.h"
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 u8 set_cycle_flag = 0;
+#endif
 
 static int qg_debug_mask;
 module_param_named(
@@ -213,7 +214,6 @@ static void qg_notify_charger(struct qpnp_qg *chip)
 		return;
 
 	prop.intval = chip->bp.float_volt_uv;
-
 	rc = power_supply_set_property(chip->batt_psy,
 			POWER_SUPPLY_PROP_VOLTAGE_MAX, &prop);
 	if (rc < 0) {
@@ -2082,9 +2082,11 @@ static int qg_psy_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_FG_RESET:
 		qg_reset(chip);
 		break;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	case POWER_SUPPLY_PROP_CYCLE_COUNT:
 		rc = set_cycle_count(chip->counter, pval->intval);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_BATT_AGE_LEVEL:
 		rc = qg_setprop_batt_age_level(chip, pval->intval);
 		break;
@@ -2347,8 +2349,12 @@ static int qg_charge_full_update(struct qpnp_qg *chip)
 				chip->msoc, health, chip->charge_full,
 				chip->charge_done);
 	if (chip->charge_done && !chip->charge_full) {
-		if (chip->msoc >= 99 && (health == POWER_SUPPLY_HEALTH_GOOD || 
-			health == POWER_SUPPLY_HEALTH_WARM || health == POWER_SUPPLY_HEALTH_COOL) ) {
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+		if (chip->msoc >= 99 && (health == POWER_SUPPLY_HEALTH_GOOD ||
+		    health == POWER_SUPPLY_HEALTH_WARM || health == POWER_SUPPLY_HEALTH_COOL)) {
+#else
+		if (chip->msoc >= 99 && health == POWER_SUPPLY_HEALTH_GOOD) {
+#endif
 			chip->charge_full = true;
 			qg_dbg(chip, QG_DEBUG_STATUS, "Setting charge_full (0->1) @ msoc=%d\n",
 					chip->msoc);
@@ -4347,9 +4353,9 @@ static int process_suspend(struct qpnp_qg *chip)
 	get_rtc_time(&chip->suspend_time);
 
 	qg_dbg(chip, QG_DEBUG_PM, "FIFO rt_length=%d sleep_fifo_length=%d default_s2_count=%d suspend_data=%d time=%d\n",
-			fifo_rt_length, sleep_fifo_length,
-			chip->dt.s2_fifo_length, chip->suspend_data,
-			chip->suspend_time);
+			(int)fifo_rt_length, (int)sleep_fifo_length,
+			chip->dt.s2_fifo_length, (int)chip->suspend_data,
+			(int)chip->suspend_time);
 
 	return rc;
 }
@@ -4409,10 +4415,10 @@ static int process_resume(struct qpnp_qg *chip)
 	}
 	rt_status &= FIFO_UPDATE_DONE_INT_LAT_STS_BIT;
 
-	qg_dbg(chip, QG_DEBUG_PM, "FIFO_DONE_STS=%d suspend_data=%d good_ocv=%d sleep_time=%d secs\n",
-				!!rt_status, chip->suspend_data,
-				chip->kdata.param[QG_GOOD_OCV_UV].valid,
-				sleep_time_secs);
+	qg_dbg(chip, QG_DEBUG_PM, "FIFO_DONE_STS=%ld suspend_data=%ld good_ocv=%ld sleep_time=%ld secs\n",
+				(unsigned long)!!rt_status, (unsigned long)chip->suspend_data,
+				(unsigned long)chip->kdata.param[QG_GOOD_OCV_UV].valid,
+				(unsigned long)sleep_time_secs);
 	/*
 	 * If this is not a wakeup from FIFO-done,
 	 * process the data immediately if - we have data from
@@ -4592,12 +4598,6 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 	rc = qg_register_device(chip);
 	if (rc < 0) {
 		pr_err("Failed to register QG char device, rc=%d\n", rc);
-		return rc;
-	}
-
-	rc = qg_sanitize_sdam(chip);
-	if (rc < 0) {
-		pr_err("Failed to sanitize SDAM, rc=%d\n", rc);
 		return rc;
 	}
 

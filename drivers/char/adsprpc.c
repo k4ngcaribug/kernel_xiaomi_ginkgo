@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,7 +48,6 @@
 #include <soc/qcom/ramdump.h>
 #include <linux/debugfs.h>
 #include <linux/pm_qos.h>
-#include <linux/cpumask.h>
 #include <linux/stat.h>
 
 #define TZ_PIL_PROTECT_MEM_SUBSYS_ID 0x0C
@@ -182,11 +182,6 @@ struct secure_vm {
 	int *vmid;
 	int *vmperm;
 	int vmcount;
-};
-
-struct qos_cores {
-	int *coreno;
-	int corecount;
 };
 
 struct fastrpc_file;
@@ -330,7 +325,6 @@ struct fastrpc_apps {
 	struct wakeup_source *wake_source_secure;
 	/* Non-secure subsystem like CDSP will use regular client */
 	struct wakeup_source *wake_source;
-	struct qos_cores silvercores;
 };
 
 struct fastrpc_mmap {
@@ -614,64 +608,43 @@ static void fastrpc_remote_buf_list_free(struct fastrpc_file *fl)
 	} while (free);
 }
 
+static void fastrpc_mmap_add_global(struct fastrpc_mmap *map)
+{
+	struct fastrpc_apps *me = &gfa;
+	unsigned long irq_flags = 0;
+
+	spin_lock_irqsave(&me->hlock, irq_flags);
+	hlist_add_head(&map->hn, &me->maps);
+	spin_unlock_irqrestore(&me->hlock, irq_flags);
+}
+
 static void fastrpc_mmap_add(struct fastrpc_mmap *map)
 {
-	if (map->flags == ADSP_MMAP_HEAP_ADDR ||
-				map->flags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
-		struct fastrpc_apps *me = &gfa;
+	struct fastrpc_file *fl = map->fl;
 
-		spin_lock(&me->hlock);
-		hlist_add_head(&map->hn, &me->maps);
-		spin_unlock(&me->hlock);
-	} else {
-		struct fastrpc_file *fl = map->fl;
-
-		hlist_add_head(&map->hn, &fl->maps);
-	}
+	hlist_add_head(&map->hn, &fl->maps);
 }
 
 static int fastrpc_mmap_find(struct fastrpc_file *fl, int fd,
 		uintptr_t va, size_t len, int mflags, int refs,
 		struct fastrpc_mmap **ppmap)
 {
-	struct fastrpc_apps *me = &gfa;
 	struct fastrpc_mmap *match = NULL, *map = NULL;
 	struct hlist_node *n;
 
 	if ((va + len) < va)
 		return -EOVERFLOW;
-	if (mflags == ADSP_MMAP_HEAP_ADDR ||
-				 mflags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
-		spin_lock(&me->hlock);
-		hlist_for_each_entry_safe(map, n, &me->maps, hn) {
-			if (va >= map->va &&
-				va + len <= map->va + map->len &&
-				map->fd == fd) {
-				if (refs) {
-					if (map->refs + 1 == INT_MAX) {
-						spin_unlock(&me->hlock);
-						return -ETOOMANYREFS;
-					}
-					map->refs++;
-				}
-				match = map;
-				break;
+	hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
+		if (va >= map->va &&
+			va + len <= map->va + map->len &&
+			map->fd == fd) {
+			if (refs) {
+				if (map->refs + 1 == INT_MAX)
+					return -ETOOMANYREFS;
+				map->refs++;
 			}
-		}
-		spin_unlock(&me->hlock);
-	} else {
-		hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
-			if (va >= map->va &&
-				va + len <= map->va + map->len &&
-				map->fd == fd) {
-				if (refs) {
-					if (map->refs + 1 == INT_MAX)
-						return -ETOOMANYREFS;
-					map->refs++;
-				}
-				match = map;
-				break;
-			}
+			match = map;
+			break;
 		}
 	}
 	if (match) {
@@ -1020,8 +993,9 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 		map->va = va;
 	}
 	map->len = len;
-
-	fastrpc_mmap_add(map);
+	if ((mflags != ADSP_MMAP_HEAP_ADDR) &&
+			(mflags != ADSP_MMAP_REMOTE_HEAP_ADDR))
+		fastrpc_mmap_add(map);
 	*ppmap = map;
 
 bail:
@@ -2361,6 +2335,7 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 			mutex_unlock(&fl->map_mutex);
 			if (err)
 				goto bail;
+			fastrpc_mmap_add_global(mem);
 			phys = mem->phys;
 			size = mem->size;
 			if (me->channel[fl->cid].rhvm.vmid) {
@@ -2805,15 +2780,13 @@ static int fastrpc_mmap_remove_ssr(struct fastrpc_file *fl, int locked)
 					kfree(ramdump_segments_rh);
 				}
 			}
-			mutex_lock(&fl->map_mutex);
 			fastrpc_mmap_free(match, 0);
-			mutex_unlock(&fl->map_mutex);
 		}
 	} while (match);
 bail:
 	if (err && match) {
 		mutex_lock(&fl->map_mutex);
-		fastrpc_mmap_add(match);
+		fastrpc_mmap_add_global(match);
 		mutex_unlock(&fl->map_mutex);
 	}
 	return err;
@@ -2886,7 +2859,9 @@ static int fastrpc_internal_munmap(struct fastrpc_file *fl,
 
 	VERIFY(err, fl->dsp_proc_init == 1);
 	if (err) {
-		err = -EHOSTDOWN;
+		pr_err("adsprpc: ERROR: %s: user application %s trying to unmap without initialization\n",
+			 __func__, current->comm);
+		err = -EBADR;
 		return err;
 	}
 	mutex_lock(&fl->internal_map_mutex);
@@ -2933,7 +2908,11 @@ static int fastrpc_internal_munmap(struct fastrpc_file *fl,
 bail:
 	if (err && map) {
 		mutex_lock(&fl->map_mutex);
-		fastrpc_mmap_add(map);
+		if ((map->flags == ADSP_MMAP_HEAP_ADDR) ||
+				(map->flags == ADSP_MMAP_REMOTE_HEAP_ADDR))
+			fastrpc_mmap_add_global(map);
+		else
+			fastrpc_mmap_add(map);
 		mutex_unlock(&fl->map_mutex);
 	}
 	mutex_unlock(&fl->internal_map_mutex);
@@ -2956,7 +2935,9 @@ static int fastrpc_internal_munmap_fd(struct fastrpc_file *fl,
 		return err;
 	VERIFY(err, fl->dsp_proc_init == 1);
 	if (err) {
-		err = -EHOSTDOWN;
+		pr_err("adsprpc: ERROR: %s: user application %s trying to unmap without initialization\n",
+			__func__, current->comm);
+		err = -EBADR;
 		return err;
 	}
 	mutex_lock(&fl->internal_map_mutex);
@@ -2991,7 +2972,9 @@ static int fastrpc_internal_mmap(struct fastrpc_file *fl,
 
 	VERIFY(err, fl->dsp_proc_init == 1);
 	if (err) {
-		err = -EHOSTDOWN;
+		pr_err("adsprpc: ERROR: %s: user application %s trying to map without initialization\n",
+			__func__, current->comm);
+		err = -EBADR;
 		return err;
 	}
 	mutex_lock(&fl->internal_map_mutex);
@@ -3036,6 +3019,9 @@ static int fastrpc_internal_mmap(struct fastrpc_file *fl,
 		if (err)
 			goto bail;
 		map->raddr = raddr;
+		if (ud->flags == ADSP_MMAP_HEAP_ADDR ||
+				ud->flags == ADSP_MMAP_REMOTE_HEAP_ADDR)
+			fastrpc_mmap_add_global(map);
 	}
 	ud->vaddrout = raddr;
  bail:
@@ -3071,7 +3057,7 @@ static int fastrpc_session_alloc_locked(struct fastrpc_channel_ctx *chan,
 		}
 		if (idx >= chan->sesscount) {
 			err = -EUSERS;
-			pr_err("adsprpc: ERROR %d: %s: max concurrent sessions limit (%d) already reached on %s\n",
+			pr_err("adsprpc: ERROR %d: %s: max concurrent sessions limit (%llu) already reached on %s\n",
 				err, __func__, chan->sesscount, chan->subsys);
 			goto bail;
 		}
@@ -3334,13 +3320,13 @@ static ssize_t fastrpc_debugfs_read(struct file *filp, char __user *buffer,
 			len += scnprintf(fileinfo + len,
 				DEBUGFS_SIZE - len, "%-7s", chan->subsys);
 			len += scnprintf(fileinfo + len,
-				DEBUGFS_SIZE - len, "|%-10u",
+				DEBUGFS_SIZE - len, "|%-10llu",
 				chan->sesscount);
 			len += scnprintf(fileinfo + len,
 				DEBUGFS_SIZE - len, "|%-14d",
 				chan->issubsystemup);
 			len += scnprintf(fileinfo + len,
-				DEBUGFS_SIZE - len, "|%-9u",
+				DEBUGFS_SIZE - len, "|%-9llu",
 				chan->ssrcount);
 			for (j = 0; j < chan->sesscount; j++) {
 				sess_used += chan->session[j].used;
@@ -3400,7 +3386,7 @@ static ssize_t fastrpc_debugfs_read(struct file *filp, char __user *buffer,
 		len += scnprintf(fileinfo + len, DEBUGFS_SIZE - len,
 			"%s %7s %d\n", "sessionid", ":", fl->sessionid);
 		len += scnprintf(fileinfo + len, DEBUGFS_SIZE - len,
-			"%s %8s %u\n", "ssrcount", ":", fl->ssrcount);
+			"%s %8s %llu\n", "ssrcount", ":", fl->ssrcount);
 		len += scnprintf(fileinfo + len, DEBUGFS_SIZE - len,
 			"%s %14s %d\n", "pd", ":", fl->pd);
 		len += scnprintf(fileinfo + len, DEBUGFS_SIZE - len,
@@ -3532,6 +3518,7 @@ static const struct file_operations debugfs_fops = {
 	.open = fastrpc_debugfs_open,
 	.read = fastrpc_debugfs_read,
 };
+
 static int fastrpc_channel_open(struct fastrpc_file *fl)
 {
 	struct fastrpc_apps *me = &gfa;
@@ -3570,12 +3557,11 @@ static int fastrpc_channel_open(struct fastrpc_file *fl)
 
 	if (cid == ADSP_DOMAIN_ID && me->channel[cid].ssrcount !=
 			 me->channel[cid].prevssrcount) {
-		mutex_unlock(&me->channel[cid].smd_mutex);
-		if (fastrpc_mmap_remove_ssr(fl, 1)) {
+		mutex_lock(&fl->map_mutex);
+		if (fastrpc_mmap_remove_ssr(fl, 1))
 			pr_err("adsprpc: %s: SSR: Failed to unmap remote heap for %s\n",
 				__func__, me->channel[cid].name);
-		}
-		mutex_lock(&me->channel[cid].smd_mutex);
+		mutex_unlock(&fl->map_mutex);
 		me->channel[cid].prevssrcount =
 					me->channel[cid].ssrcount;
 	}
@@ -3737,9 +3723,6 @@ static int fastrpc_internal_control(struct fastrpc_file *fl,
 {
 	int err = 0;
 	int latency;
-	cpumask_t mask;
-	struct fastrpc_apps *me = &gfa;
-	u32 len = me->silvercores.corecount, i = 0;
 
 	VERIFY(err, !IS_ERR_OR_NULL(fl) && !IS_ERR_OR_NULL(fl->apps));
 	if (err)
@@ -3755,11 +3738,6 @@ static int fastrpc_internal_control(struct fastrpc_file *fl,
 		VERIFY(err, latency != 0);
 		if (err)
 			goto bail;
-		cpumask_clear(&mask);
-		for (i = 0; i < len; i++)
-			cpumask_set_cpu(me->silvercores.coreno[i], &mask);
-		fl->pm_qos_req.type = PM_QOS_REQ_AFFINE_CORES;
-		atomic_set(&fl->pm_qos_req.cpus_affine, *cpumask_bits(&mask));
 		mutex_lock(&fl->pm_qos_mutex);
 		if (!fl->qos_request) {
 			pm_qos_add_request(&fl->pm_qos_req,
@@ -4372,7 +4350,7 @@ static int fastrpc_cb_probe(struct device *dev)
 	}
 
 	chan->sesscount++;
-	if (debugfs_root && !debugfs_global_file) {
+	if (debugfs_root) {
 		debugfs_global_file = debugfs_create_file("global", 0644,
 			debugfs_root, NULL, &debugfs_fops);
 		if (IS_ERR_OR_NULL(debugfs_global_file)) {
@@ -4511,39 +4489,6 @@ bail:
 	}
 }
 
-static void init_qos_cores_list(struct device *dev, char *prop_name,
-						struct qos_cores *silvercores)
-{
-	int err = 0;
-	u32 len = 0, i = 0;
-	u32 *coreslist = NULL;
-
-	if (!of_find_property(dev->of_node, prop_name, &len))
-		goto bail;
-	if (len == 0)
-		goto bail;
-	len /= sizeof(u32);
-	VERIFY(err, NULL != (coreslist = kcalloc(len, sizeof(u32),
-						 GFP_KERNEL)));
-	if (err)
-		goto bail;
-	for (i = 0; i < len; i++) {
-		err = of_property_read_u32_index(dev->of_node, prop_name, i,
-								&coreslist[i]);
-		if (err) {
-			pr_err("adsprpc: %s: failed to read QOS cores list\n",
-								 __func__);
-			goto bail;
-		}
-	}
-	silvercores->coreno = coreslist;
-	silvercores->corecount = len;
-bail:
-	if (err) {
-		kfree(coreslist);
-	}
-}
-
 static void configure_secure_channels(uint32_t secure_domains)
 {
 	struct fastrpc_apps *me = &gfa;
@@ -4580,8 +4525,6 @@ static int fastrpc_probe(struct platform_device *pdev)
 					"qcom,msm-fastrpc-compute")) {
 		init_secure_vmid_list(dev, "qcom,adsp-remoteheap-vmid",
 							&gcinfo[0].rhvm);
-		init_qos_cores_list(dev, "qcom,qos-cores",
-							&me->silvercores);
 
 
 		of_property_read_u32(dev->of_node, "qcom,rpc-latency-us",
@@ -4827,6 +4770,7 @@ static int __init fastrpc_device_init(void)
 	struct device *secure_dev = NULL;
 	int err = 0, i;
 
+#ifdef CONFIG_DEBUG_FS
 	debugfs_root = debugfs_create_dir("adsprpc", NULL);
 	if (IS_ERR_OR_NULL(debugfs_root)) {
 		pr_warn("Error: %s: %s: failed to create debugfs root dir\n",
@@ -4834,6 +4778,7 @@ static int __init fastrpc_device_init(void)
 		debugfs_remove_recursive(debugfs_root);
 		debugfs_root = NULL;
 	}
+#endif
 	memset(me, 0, sizeof(*me));
 	fastrpc_init(me);
 	me->dev = NULL;

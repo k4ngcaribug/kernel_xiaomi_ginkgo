@@ -36,7 +36,7 @@
 #ifdef PCM_DEBUG
 #define DBG		MSG
 #else
-#define DBG(x...)	do {} while (0)
+#define DBG(x...)	((void)0)
 #endif
 
 struct au1xpsc_audio_dmadata {
@@ -336,8 +336,8 @@ static int au1xpsc_pcm_drvprobe(struct platform_device *pdev)
 {
 	struct au1xpsc_audio_dmadata *dmadata;
 
-	dmadata = devm_kzalloc(&pdev->dev,
-			       2 * sizeof(struct au1xpsc_audio_dmadata),
+	dmadata = devm_kcalloc(&pdev->dev,
+			       2, sizeof(struct au1xpsc_audio_dmadata),
 			       GFP_KERNEL);
 	if (!dmadata)
 		return -ENOMEM;

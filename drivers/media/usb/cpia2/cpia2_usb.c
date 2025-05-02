@@ -559,7 +559,7 @@ static int write_packet(struct usb_device *udev,
 			       0,	/* index */
 			       buf,	/* buffer */
 			       size,
-			       HZ);
+			       1000);
 
 	kfree(buf);
 	return ret;
@@ -591,7 +591,7 @@ static int read_packet(struct usb_device *udev,
 			       0,	/* index */
 			       buf,	/* buffer */
 			       size,
-			       HZ);
+			       1000);
 
 	if (ret >= 0)
 		memcpy(registers, buf, size);
@@ -663,7 +663,8 @@ static int submit_urbs(struct camera_data *cam)
 		if (cam->sbuf[i].data)
 			continue;
 		cam->sbuf[i].data =
-		    kmalloc(FRAMES_PER_DESC * FRAME_SIZE_PER_DESC, GFP_KERNEL);
+		    kmalloc_array(FRAME_SIZE_PER_DESC, FRAMES_PER_DESC,
+				  GFP_KERNEL);
 		if (!cam->sbuf[i].data) {
 			while (--i >= 0) {
 				kfree(cam->sbuf[i].data);

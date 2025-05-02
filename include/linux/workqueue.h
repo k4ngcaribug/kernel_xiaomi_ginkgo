@@ -13,7 +13,6 @@
 #include <linux/threads.h>
 #include <linux/atomic.h>
 #include <linux/cpumask.h>
-#include <linux/rcupdate.h>
 
 struct workqueue_struct;
 
@@ -73,7 +72,6 @@ enum {
 	WORK_OFFQ_FLAG_BASE	= WORK_STRUCT_COLOR_SHIFT,
 
 	__WORK_OFFQ_CANCELING	= WORK_OFFQ_FLAG_BASE,
-	WORK_OFFQ_CANCELING	= (1 << __WORK_OFFQ_CANCELING),
 
 	/*
 	 * When a work item is off queue, its high bits point to the last
@@ -84,12 +82,6 @@ enum {
 	WORK_OFFQ_POOL_SHIFT	= WORK_OFFQ_FLAG_BASE + WORK_OFFQ_FLAG_BITS,
 	WORK_OFFQ_LEFT		= BITS_PER_LONG - WORK_OFFQ_POOL_SHIFT,
 	WORK_OFFQ_POOL_BITS	= WORK_OFFQ_LEFT <= 31 ? WORK_OFFQ_LEFT : 31,
-	WORK_OFFQ_POOL_NONE	= (1LU << WORK_OFFQ_POOL_BITS) - 1,
-
-	/* convenience constants */
-	WORK_STRUCT_FLAG_MASK	= (1UL << WORK_STRUCT_FLAG_BITS) - 1,
-	WORK_STRUCT_WQ_DATA_MASK = ~WORK_STRUCT_FLAG_MASK,
-	WORK_STRUCT_NO_POOL	= (unsigned long)WORK_OFFQ_POOL_NONE << WORK_OFFQ_POOL_SHIFT,
 
 	/* bit mask for work_busy() return values */
 	WORK_BUSY_PENDING	= 1 << 0,
@@ -98,6 +90,14 @@ enum {
 	/* maximum string length for set_worker_desc() */
 	WORKER_DESC_LEN		= 24,
 };
+
+/* Convenience constants - of type 'unsigned long', not 'enum'! */
+#define WORK_OFFQ_CANCELING	(1ul << __WORK_OFFQ_CANCELING)
+#define WORK_OFFQ_POOL_NONE	((1ul << WORK_OFFQ_POOL_BITS) - 1)
+#define WORK_STRUCT_NO_POOL	(WORK_OFFQ_POOL_NONE << WORK_OFFQ_POOL_SHIFT)
+
+#define WORK_STRUCT_FLAG_MASK    ((1ul << WORK_STRUCT_FLAG_BITS) - 1)
+#define WORK_STRUCT_WQ_DATA_MASK (~WORK_STRUCT_FLAG_MASK)
 
 struct work_struct {
 	atomic_long_t data;
@@ -119,14 +119,6 @@ struct delayed_work {
 	/* target workqueue and CPU ->timer uses to queue ->work */
 	struct workqueue_struct *wq;
 	int cpu;
-};
-
-struct rcu_work {
-	struct work_struct work;
-	struct rcu_head rcu;
-
-	/* target workqueue ->rcu uses to queue ->work */
-	struct workqueue_struct *wq;
 };
 
 /**
@@ -158,11 +150,6 @@ struct workqueue_attrs {
 static inline struct delayed_work *to_delayed_work(struct work_struct *work)
 {
 	return container_of(work, struct delayed_work, work);
-}
-
-static inline struct rcu_work *to_rcu_work(struct work_struct *work)
-{
-	return container_of(work, struct rcu_work, work);
 }
 
 struct execute_work {
@@ -281,12 +268,6 @@ static inline unsigned int work_static(struct work_struct *work) { return 0; }
 
 #define INIT_DEFERRABLE_WORK_ONSTACK(_work, _func)			\
 	__INIT_DELAYED_WORK_ONSTACK(_work, _func, TIMER_DEFERRABLE)
-
-#define INIT_RCU_WORK(_work, _func)					\
-	INIT_WORK(&(_work)->work, (_func))
-
-#define INIT_RCU_WORK_ONSTACK(_work, _func)				\
-	INIT_WORK_ONSTACK(&(_work)->work, (_func))
 
 /**
  * work_pending - Find out whether a work item is currently pending
@@ -469,7 +450,6 @@ extern bool queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 			struct delayed_work *work, unsigned long delay);
 extern bool mod_delayed_work_on(int cpu, struct workqueue_struct *wq,
 			struct delayed_work *dwork, unsigned long delay);
-extern bool queue_rcu_work(struct workqueue_struct *wq, struct rcu_work *rwork);
 
 extern void flush_workqueue(struct workqueue_struct *wq);
 extern void drain_workqueue(struct workqueue_struct *wq);
@@ -485,8 +465,6 @@ extern bool cancel_work_sync(struct work_struct *work);
 extern bool flush_delayed_work(struct delayed_work *dwork);
 extern bool cancel_delayed_work(struct delayed_work *dwork);
 extern bool cancel_delayed_work_sync(struct delayed_work *dwork);
-
-extern bool flush_rcu_work(struct rcu_work *rwork);
 
 extern void workqueue_set_max_active(struct workqueue_struct *wq,
 				     int max_active);
@@ -628,15 +606,6 @@ static inline bool schedule_delayed_work(struct delayed_work *dwork,
 					 unsigned long delay)
 {
 	return queue_delayed_work(system_wq, dwork, delay);
-}
-
-/**
- * delayed_work_busy - See work_busy()
- * @dwork: the delayed work to be tested
- */
-static inline unsigned int delayed_work_busy(struct delayed_work *dwork)
-{
-	return work_busy(&dwork->work);
 }
 
 #ifndef CONFIG_SMP

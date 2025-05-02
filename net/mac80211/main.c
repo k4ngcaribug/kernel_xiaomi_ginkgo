@@ -139,6 +139,8 @@ static u32 ieee80211_hw_conf_chan(struct ieee80211_local *local)
 	}
 
 	power = ieee80211_chandef_max_power(&chandef);
+	if (local->user_power_level != IEEE80211_UNSET_POWER_LEVEL)
+		power = min(local->user_power_level, power);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sdata, &local->interfaces, list) {
@@ -781,7 +783,7 @@ static int ieee80211_init_cipher_suites(struct ieee80211_local *local)
 		if (have_mfp)
 			n_suites += 4;
 
-		suites = kmalloc(sizeof(u32) * n_suites, GFP_KERNEL);
+		suites = kmalloc_array(n_suites, sizeof(u32), GFP_KERNEL);
 		if (!suites)
 			return -ENOMEM;
 

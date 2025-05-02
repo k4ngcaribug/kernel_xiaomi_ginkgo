@@ -3957,13 +3957,6 @@ F:	include/uapi/linux/dccp.h
 F:	include/linux/tfrc.h
 F:	net/dccp/
 
-DECnet NETWORK LAYER
-W:	http://linux-decnet.sourceforge.net
-L:	linux-decnet-user@lists.sourceforge.net
-S:	Orphan
-F:	Documentation/networking/decnet.txt
-F:	net/decnet/
-
 DECSTATION PLATFORM SUPPORT
 M:	"Maciej W. Rozycki" <macro@linux-mips.org>
 L:	linux-mips@linux-mips.org
@@ -5270,6 +5263,8 @@ M:	Jaegeuk Kim <jaegeuk@kernel.org>
 M:	Chao Yu <yuchao0@huawei.com>
 L:	linux-f2fs-devel@lists.sourceforge.net
 W:	https://f2fs.wiki.kernel.org/
+Q:	https://patchwork.kernel.org/project/f2fs/list/
+B:	https://bugzilla.kernel.org/enter_bug.cgi?product=File%20System&component=f2fs
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jaegeuk/f2fs.git
 S:	Maintained
 F:	Documentation/filesystems/f2fs.txt
@@ -5277,6 +5272,7 @@ F:	Documentation/ABI/testing/sysfs-fs-f2fs
 F:	fs/f2fs/
 F:	include/linux/f2fs_fs.h
 F:	include/trace/events/f2fs.h
+F:	include/uapi/linux/f2fs.h
 
 F71805F HARDWARE MONITORING DRIVER
 M:	Jean Delvare <jdelvare@suse.com>
@@ -8117,6 +8113,7 @@ F:	include/linux/rwlock*.h
 F:	include/linux/mutex*.h
 F:	arch/*/include/asm/mutex*.h
 F:	include/linux/rwsem*.h
+F:	arch/*/include/asm/rwsem.h
 F:	include/linux/seqlock.h
 F:	lib/locking*.[ch]
 F:	kernel/locking/
@@ -9072,19 +9069,6 @@ T:	git git://git.linaro.org/people/ycmiao/pxa-linux.git
 S:	Maintained
 F:	arch/arm/boot/dts/mmp*
 F:	arch/arm/mach-mmp/
-
-MMU GATHER AND TLB INVALIDATION
-M:	Will Deacon <will.deacon@arm.com>
-M:	"Aneesh Kumar K.V" <aneesh.kumar@linux.vnet.ibm.com>
-M:	Andrew Morton <akpm@linux-foundation.org>
-M:	Nick Piggin <npiggin@gmail.com>
-M:	Peter Zijlstra <peterz@infradead.org>
-L:	linux-arch@vger.kernel.org
-L:	linux-mm@kvack.org
-S:	Maintained
-F:	arch/*/include/asm/tlb.h
-F:	include/asm-generic/tlb.h
-F:	mm/mmu_gather.c
 
 MN88472 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
@@ -11360,6 +11344,7 @@ F:	drivers/block/brd.c
 
 RANDOM NUMBER DRIVER
 M:	"Theodore Ts'o" <tytso@mit.edu>
+M:	Jason A. Donenfeld <Jason@zx2c4.com>
 S:	Maintained
 F:	drivers/char/random.c
 

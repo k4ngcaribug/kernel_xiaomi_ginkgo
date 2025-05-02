@@ -1,5 +1,4 @@
 /* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -214,6 +213,10 @@ static int get_bucket_cycle_count(struct cycle_counter *counter)
 	return count;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+static int cycle_count_a = 0;
+#endif
+
 /**
  * get_cycle_count -
  * @counter: Cycle counter object
@@ -222,7 +225,6 @@ static int get_bucket_cycle_count(struct cycle_counter *counter)
  * Get average cycle count for all buckets
  *
  */
-static int cycle_count_a = 0;
 int get_cycle_count(struct cycle_counter *counter, int *count)
 {
 	int i, rc, temp = 0;
@@ -242,19 +244,25 @@ int get_cycle_count(struct cycle_counter *counter, int *count)
 	 * the overall charge cycle count.
 	 */
 
-	if(!cycle_count_a)
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+	if (!cycle_count_a)
 		*count = temp / BUCKET_COUNT;
 	else
 		*count = cycle_count_a;
+#else
+	*count = temp / BUCKET_COUNT;
+#endif
 	return 0;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 int set_cycle_count(struct cycle_counter *counter, int count)
 {
 	cycle_count_a = count;
 
 	return 0;
 }
+#endif
 
 /**
  * get_cycle_counts -

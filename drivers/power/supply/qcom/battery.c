@@ -1,5 +1,4 @@
 /* Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1194,7 +1193,7 @@ stepper_exit:
 	cp_configure_ilim(chip, FCC_VOTER, chip->slave_fcc_ua / 2);
 
 	if (reschedule_ms) {
-		queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
+		schedule_delayed_work(&chip->fcc_stepper_work,
 				msecs_to_jiffies(reschedule_ms));
 		pr_debug("Rescheduling FCC_STEPPER work\n");
 		return;
@@ -1216,15 +1215,19 @@ static bool is_batt_available(struct pl_data *chip)
 }
 
 #define PARALLEL_FLOAT_VOLTAGE_DELTA_UV 50000
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 static u8 cycle_flag = 0;
 extern u8 set_cycle_flag;
+#endif
 static int pl_fv_vote_callback(struct votable *votable, void *data,
 			int fv_uv, const char *client)
 {
 	struct pl_data *chip = data;
 	union power_supply_propval pval = {0, };
 	int rc = 0;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	int charge_cycle_count;
+#endif
 
 	if (fv_uv < 0)
 		return 0;
@@ -1232,19 +1235,19 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 	if (!chip->main_psy)
 		return 0;
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	rc = power_supply_get_property(chip->batt_psy,
 			POWER_SUPPLY_PROP_CYCLE_COUNT,&pval);
 	charge_cycle_count = pval.intval;
 
-	if(charge_cycle_count >= 100 && cycle_flag == 0)
+	if (charge_cycle_count >= 100 && cycle_flag == 0)
 		cycle_flag = 1;
 
-  	if(set_cycle_flag == 1)
+  	if (set_cycle_flag == 1)
           	cycle_flag = 0;
-  
-	if(!cycle_flag)
-	{
-		if(charge_cycle_count >= 300)
+
+	if (!cycle_flag) {
+		if (charge_cycle_count >= 300)
 			pval.intval = fv_uv- 30000;
 		else if (charge_cycle_count >= 200 && charge_cycle_count < 300)
 			pval.intval = fv_uv- 20000;
@@ -1253,13 +1256,16 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 		else
 			pval.intval = fv_uv;
 	} else {
-		if(charge_cycle_count - 100 >= 200)
+		if (charge_cycle_count - 100 >= 200)
 			pval.intval = fv_uv-30000;
 		else if (charge_cycle_count - 100 >= 100 && charge_cycle_count - 100 < 200)
 			pval.intval = fv_uv- 20000;
 		else
 			pval.intval = fv_uv- 10000;
 	}
+#else
+	pval.intval = fv_uv;
+#endif
 
 	rc = power_supply_set_property(chip->main_psy,
 			POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
@@ -1341,7 +1347,7 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ua <= 1400000)
 		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	else
-		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work,
+		schedule_delayed_work(&chip->status_change_work,
 						msecs_to_jiffies(PL_DELAY_MS));
 
 	/* rerun AICL */
@@ -1478,7 +1484,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
+				schedule_delayed_work(&chip->fcc_stepper_work,
 					0);
 			}
 		} else {
@@ -1595,7 +1601,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 			if (chip->step_fcc) {
 				vote(chip->pl_awake_votable, FCC_STEPPER_VOTER,
 					true, 0);
-				queue_delayed_work(system_power_efficient_wq, &chip->fcc_stepper_work,
+				schedule_delayed_work(&chip->fcc_stepper_work,
 					0);
 			}
 		}
@@ -1942,7 +1948,7 @@ static int pl_notifier_call(struct notifier_block *nb,
 	if ((strcmp(psy->desc->name, "parallel") == 0)
 	    || (strcmp(psy->desc->name, "battery") == 0)
 	    || (strcmp(psy->desc->name, "main") == 0))
-		queue_delayed_work(system_power_efficient_wq, &chip->status_change_work, 0);
+		schedule_delayed_work(&chip->status_change_work, 0);
 
 	return NOTIFY_OK;
 }

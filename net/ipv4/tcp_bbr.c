@@ -292,25 +292,40 @@ static void bbr_set_pacing_rate(struct sock *sk, u32 bw, int gain)
 		sk->sk_pacing_rate = rate;
 }
 
-/* override sysctl_tcp_min_tso_segs */
 static u32 bbr_min_tso_segs(struct sock *sk)
 {
 	return sk->sk_pacing_rate < (bbr_min_tso_rate >> 3) ? 1 : 2;
 }
 
+/* Return the number of segments BBR would like in a TSO/GSO skb, given
+ * a particular max gso size as a constraint.
+ */
+static u32 bbr_tso_segs_generic(struct sock *sk, unsigned int mss_now,
+				u32 gso_max_size)
+{
+	u32 segs;
+	u64 bytes;
+
+	/* Budget a TSO/GSO burst size allowance based on bw (pacing_rate). */
+	bytes = sk->sk_pacing_rate >> sk->sk_pacing_shift;
+
+	bytes = min_t(u32, bytes, gso_max_size - 1 - MAX_TCP_HEADER);
+	segs = max_t(u32, bytes / mss_now, bbr_min_tso_segs(sk));
+	return segs;
+}
+
+/* Custom tcp_tso_autosize() for BBR, used at transmit time to cap skb size. */
+static u32  bbr_tso_segs(struct sock *sk, unsigned int mss_now)
+{
+	return bbr_tso_segs_generic(sk, mss_now, sk->sk_gso_max_size);
+}
+
+/* Like bbr_tso_segs(), using mss_cache, ignoring driver's sk_gso_max_size. */
 static u32 bbr_tso_segs_goal(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	u32 segs, bytes;
 
-	/* Sort of tcp_tso_autosize() but ignoring
-	 * driver provided sk_gso_max_size.
-	 */
-	bytes = min_t(u32, sk->sk_pacing_rate >> sk->sk_pacing_shift,
-		      GSO_MAX_SIZE - 1 - MAX_TCP_HEADER);
-	segs = max_t(u32, bytes / tp->mss_cache, bbr_min_tso_segs(sk));
-
-	return min(segs, 0x7FU);
+	return  bbr_tso_segs_generic(sk, tp->mss_cache, GSO_MAX_SIZE);
 }
 
 /* Save "last known good" cwnd so we can restore it after losses or PROBE_RTT */
@@ -346,7 +361,7 @@ static void bbr_cwnd_event(struct sock *sk, enum tcp_ca_event event)
 
 /* Calculate bdp based on min RTT and the estimated bottleneck bandwidth:
  *
- * bdp = bw * min_rtt * gain
+ * bdp = ceil(bw * min_rtt * gain)
  *
  * The key factor, gain, controls the amount of queue. While a small gain
  * builds a smaller queue, it becomes more vulnerable to noise in RTT
@@ -370,7 +385,9 @@ static u32 bbr_bdp(struct sock *sk, u32 bw, int gain)
 
 	w = (u64)bw * bbr->min_rtt_us;
 
-	/* Apply a gain to the given value, then remove the BW_SCALE shift. */
+	/* Apply a gain to the given value, remove the BW_SCALE shift, and
+	 * round the value up to avoid a negative feedback loop.
+	 */
 	bdp = (((w * gain) >> BBR_SCALE) + BW_UNIT - 1) / BW_UNIT;
 
 	return bdp;
@@ -1111,7 +1128,7 @@ static struct tcp_congestion_ops tcp_bbr_cong_ops __read_mostly = {
 	.undo_cwnd	= bbr_undo_cwnd,
 	.cwnd_event	= bbr_cwnd_event,
 	.ssthresh	= bbr_ssthresh,
-	.min_tso_segs	= bbr_min_tso_segs,
+	.tso_segs	= bbr_tso_segs,
 	.get_info	= bbr_get_info,
 	.set_state	= bbr_set_state,
 };

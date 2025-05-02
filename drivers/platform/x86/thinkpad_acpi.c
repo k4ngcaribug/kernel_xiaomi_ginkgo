@@ -1180,15 +1180,6 @@ static int tpacpi_rfk_update_swstate(const struct tpacpi_rfk *tp_rfk)
 	return status;
 }
 
-/* Query FW and update rfkill sw state for all rfkill switches */
-static void tpacpi_rfk_update_swstate_all(void)
-{
-	unsigned int i;
-
-	for (i = 0; i < TPACPI_RFK_SW_MAX; i++)
-		tpacpi_rfk_update_swstate(tpacpi_rfkill_switches[i]);
-}
-
 /*
  * Sync the HW-blocking state of all rfkill switches,
  * do notice it causes the rfkill core to schedule uevents
@@ -3024,9 +3015,6 @@ static void tpacpi_send_radiosw_update(void)
 	/* Sync hw blocking state first if it is hw-blocked */
 	if (wlsw == TPACPI_RFK_RADIO_OFF)
 		tpacpi_rfk_update_hwblock_state(true);
-
-	/* Sync sw blocking state */
-	tpacpi_rfk_update_swstate_all();
 
 	/* Sync hw blocking state last if it is hw-unblocked */
 	if (wlsw == TPACPI_RFK_RADIO_ON)
@@ -5972,7 +5960,7 @@ static int __init led_init(struct ibm_init_struct *iibm)
 	if (led_supported == TPACPI_LED_NONE)
 		return 1;
 
-	tpacpi_leds = kzalloc(sizeof(*tpacpi_leds) * TPACPI_LED_NUMLEDS,
+	tpacpi_leds = kcalloc(TPACPI_LED_NUMLEDS, sizeof(*tpacpi_leds),
 			      GFP_KERNEL);
 	if (!tpacpi_leds) {
 		pr_err("Out of memory for LED data\n");

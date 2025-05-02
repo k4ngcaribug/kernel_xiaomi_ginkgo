@@ -16,9 +16,6 @@
 #include <linux/file.h>
 #include <linux/quotaops.h>
 #include <linux/uuid.h>
-#include <linux/quotaops.h>
-#include <linux/random.h>
-#include <linux/uuid.h>
 #include <linux/uaccess.h>
 #include <linux/delay.h>
 #include "ext4_jbd2.h"
@@ -106,6 +103,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	int err;
 	struct inode *inode_bl;
 	struct ext4_inode_info *ei_bl;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
 	if (inode->i_nlink != 1 || !S_ISREG(inode->i_mode))
 		return -EINVAL;
@@ -143,7 +141,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	/* Protect extent tree against block allocations via delalloc */
 	ext4_double_down_write_data_sem(inode, inode_bl);
 
-	if (inode_bl->i_nlink == 0) {
+	if (is_bad_inode(inode_bl) || !S_ISREG(inode_bl->i_mode)) {
 		/* this inode has never been used as a BOOT_LOADER */
 		set_nlink(inode_bl, 1);
 		i_uid_write(inode_bl, 0);
@@ -152,6 +150,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 		ei_bl->i_flags = 0;
 		inode_bl->i_version = 1;
 		i_size_write(inode_bl, 0);
+		EXT4_I(inode_bl)->i_disksize = inode_bl->i_size;
 		inode_bl->i_mode = S_IFREG;
 		if (ext4_has_feature_extents(sb)) {
 			ext4_set_inode_flag(inode_bl, EXT4_INODE_EXTENTS);
@@ -164,8 +163,10 @@ static long swap_inode_boot_loader(struct super_block *sb,
 
 	inode->i_ctime = inode_bl->i_ctime = current_time(inode);
 
-	inode->i_generation = prandom_u32();
-	inode_bl->i_generation = prandom_u32();
+	spin_lock(&sbi->s_next_gen_lock);
+	inode->i_generation = sbi->s_next_generation++;
+	inode_bl->i_generation = sbi->s_next_generation++;
+	spin_unlock(&sbi->s_next_gen_lock);
 
 	ext4_discard_preallocations(inode);
 
@@ -408,6 +409,10 @@ static int ext4_ioctl_setproject(struct file *filp, __u32 projid)
 	if (ext4_is_quota_file(inode))
 		return err;
 
+	err = dquot_initialize(inode);
+	if (err)
+		return err;
+
 	err = ext4_get_inode_loc(inode, &iloc);
 	if (err)
 		return err;
@@ -422,10 +427,6 @@ static int ext4_ioctl_setproject(struct file *filp, __u32 projid)
 	} else {
 		brelse(iloc.bh);
 	}
-
-	err = dquot_initialize(inode);
-	if (err)
-		return err;
 
 	handle = ext4_journal_start(inode, EXT4_HT_QUOTA,
 		EXT4_QUOTA_INIT_BLOCKS(sb) +
@@ -519,6 +520,7 @@ static int ext4_shutdown(struct super_block *sb, unsigned long arg)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(sb);
 	__u32 flags;
+	struct super_block *ret;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -536,7 +538,9 @@ static int ext4_shutdown(struct super_block *sb, unsigned long arg)
 
 	switch (flags) {
 	case EXT4_GOING_FLAGS_DEFAULT:
-		freeze_bdev(sb->s_bdev);
+		ret = freeze_bdev(sb->s_bdev);
+		if (IS_ERR(ret))
+			return PTR_ERR(ret);
 		set_bit(EXT4_FLAGS_SHUTDOWN, &sbi->s_ext4_flags);
 		thaw_bdev(sb->s_bdev, sb);
 		break;
@@ -1010,8 +1014,6 @@ resizefs_out:
 		    sizeof(range)))
 			return -EFAULT;
 
-		range.minlen = max((unsigned int)range.minlen,
-				   q->limits.discard_granularity);
 		ret = ext4_trim_fs(sb, &range);
 		if (ret < 0)
 			return ret;
@@ -1180,6 +1182,12 @@ out:
 			return -EOPNOTSUPP;
 		return fsverity_ioctl_measure(filp, (void __user *)arg);
 
+	case FS_IOC_READ_VERITY_METADATA:
+		if (!ext4_has_feature_verity(sb))
+			return -EOPNOTSUPP;
+		return fsverity_ioctl_read_metadata(filp,
+						    (const void __user *)arg);
+
 	default:
 		return -ENOTTY;
 	}
@@ -1258,6 +1266,7 @@ long ext4_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case FS_IOC_MEASURE_VERITY:
 	case EXT4_IOC_FSGETXATTR:
 	case EXT4_IOC_FSSETXATTR:
+	case FS_IOC_READ_VERITY_METADATA:
 		break;
 	default:
 		return -ENOIOCTLCMD;

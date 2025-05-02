@@ -626,9 +626,9 @@ static int32_t msm_actuator_move_focus(
 		return -EFAULT;
 	}
 	/*Allocate memory for damping parameters of all regions*/
-	ringing_params_kernel = kmalloc(
-		sizeof(struct damping_params_t)*(a_ctrl->region_size),
-		GFP_KERNEL);
+	ringing_params_kernel = kmalloc_array(a_ctrl->region_size,
+					      sizeof(struct damping_params_t),
+					      GFP_KERNEL);
 	if (!ringing_params_kernel) {
 		pr_err("kmalloc for damping parameters failed\n");
 		return -EFAULT;
@@ -752,9 +752,9 @@ static int32_t msm_actuator_bivcm_move_focus(
 		return -EFAULT;
 	}
 	/*Allocate memory for damping parameters of all regions*/
-	ringing_params_kernel = kmalloc(
-		sizeof(struct damping_params_t)*(a_ctrl->region_size),
-		GFP_KERNEL);
+	ringing_params_kernel = kmalloc_array(a_ctrl->region_size,
+					      sizeof(struct damping_params_t),
+					      GFP_KERNEL);
 	if (!ringing_params_kernel) {
 		pr_err("kmalloc for damping parameters failed\n");
 		return -EFAULT;
@@ -844,9 +844,10 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 		a_ctrl->park_lens.max_step = a_ctrl->max_code_size;
 
 	next_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
-	if (next_lens_pos > 100){
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+	if (next_lens_pos > 100)
 		next_lens_pos = 100;
-	}
+#endif
 	while (next_lens_pos) {
 		/* conditions which help to reduce park lens time */
 		if (next_lens_pos > (a_ctrl->park_lens.max_step *
@@ -871,8 +872,10 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 				0;
 		}
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		pr_err("%s next lens_pos %d Line %d\n",
 				__func__,next_lens_pos,__LINE__);
+#endif
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 			next_lens_pos, a_ctrl->park_lens.hw_params,
 			a_ctrl->park_lens.damping_delay);
@@ -929,8 +932,9 @@ static int32_t msm_actuator_bivcm_init_step_table(
 	}
 	/* Fill step position table */
 	a_ctrl->step_position_table =
-		kmalloc(sizeof(uint16_t) *
-		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
+		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
+			      sizeof(uint16_t),
+			      GFP_KERNEL);
 
 	if (a_ctrl->step_position_table == NULL)
 		return -ENOMEM;
@@ -1017,8 +1021,9 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	}
 	/* Fill step position table */
 	a_ctrl->step_position_table =
-		kmalloc(sizeof(uint16_t) *
-		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
+		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
+			      sizeof(uint16_t),
+			      GFP_KERNEL);
 
 	if (a_ctrl->step_position_table == NULL)
 		return -ENOMEM;
@@ -1355,8 +1360,9 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 	}
 	a_ctrl->i2c_reg_tbl = NULL;
 	a_ctrl->i2c_reg_tbl =
-		kmalloc(sizeof(struct msm_camera_i2c_reg_array) *
-		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
+		kmalloc_array(set_info->af_tuning_params.total_steps + 1,
+			      sizeof(struct msm_camera_i2c_reg_array),
+			      GFP_KERNEL);
 	if (!a_ctrl->i2c_reg_tbl) {
 		pr_err("kmalloc fail\n");
 		return -ENOMEM;
@@ -1376,9 +1382,9 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		set_info->actuator_params.init_setting_size
 		<= MAX_ACTUATOR_INIT_SET) {
 		if (a_ctrl->func_tbl->actuator_init_focus) {
-			init_settings = kmalloc(sizeof(struct reg_settings_t) *
-				(set_info->actuator_params.init_setting_size),
-				GFP_KERNEL);
+			init_settings = kmalloc_array(set_info->actuator_params.init_setting_size,
+						      sizeof(struct reg_settings_t),
+						      GFP_KERNEL);
 			if (init_settings == NULL) {
 				kfree(a_ctrl->i2c_reg_tbl);
 				a_ctrl->i2c_reg_tbl = NULL;

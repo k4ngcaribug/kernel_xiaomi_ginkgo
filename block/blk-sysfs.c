@@ -11,6 +11,7 @@
 #include <linux/blktrace_api.h>
 #include <linux/blk-mq.h>
 #include <linux/blk-cgroup.h>
+#include <linux/binfmts.h>
 
 #include "blk.h"
 #include "blk-mq.h"
@@ -106,6 +107,10 @@ queue_ra_store(struct request_queue *q, const char *page, size_t count)
 	if (ret < 0)
 		return ret;
 
+	if (task_is_booster(current))
+		ra_kb = VM_MAX_READAHEAD;
+
+	ra_kb = 128;
 	q->backing_dev_info->ra_pages = ra_kb >> (PAGE_SHIFT - 10);
 
 	return ret;
@@ -663,7 +668,7 @@ static struct queue_sysfs_entry queue_poll_delay_entry = {
 };
 
 static struct queue_sysfs_entry queue_wc_entry = {
-	.attr = {.name = "write_cache", .mode = S_IRUGO },
+	.attr = {.name = "write_cache", .mode = S_IRUGO | S_IWUSR },
 	.show = queue_wc_show,
 	.store = queue_wc_store,
 };

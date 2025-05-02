@@ -77,18 +77,6 @@ int suid_dumpable = 0;
 static LIST_HEAD(formats);
 static DEFINE_RWLOCK(binfmt_lock);
 
-#define HWCOMPOSER_BIN_PREFIX "/vendor/bin/hw/android.hardware.graphics.composer"
-
-#define ZYGOTE32_BIN "/system/bin/app_process32"
-#define ZYGOTE64_BIN "/system/bin/app_process64"
-static struct signal_struct *zygote32_sig;
-static struct signal_struct *zygote64_sig;
-
-bool task_is_zygote(struct task_struct *p)
-{
-	return p->signal == zygote32_sig || p->signal == zygote64_sig;
-}
-
 void __register_binfmt(struct linux_binfmt * fmt, int insert)
 {
 	BUG_ON(!fmt);
@@ -798,6 +786,8 @@ int setup_arg_pages(struct linux_binprm *bprm,
 	ret = expand_stack(vma, stack_base);
 	if (ret)
 		ret = -EFAULT;
+	else
+		current->mm->stack_vma = vma;
 
 out_unlock:
 	up_write(&mm->mmap_sem);
@@ -831,6 +821,7 @@ int transfer_args_to_stack(struct linux_binprm *bprm,
 			goto out;
 	}
 
+	bprm->exec += *sp_location - MAX_ARG_PAGES * PAGE_SIZE;
 	*sp_location = sp;
 
 out:
@@ -1041,6 +1032,7 @@ static int exec_mmap(struct mm_struct *mm)
 	active_mm = tsk->active_mm;
 	tsk->active_mm = mm;
 	tsk->mm = mm;
+	lru_gen_add_mm(mm);
 	/*
 	 * This prevents preemption while active_mm is being loaded and
 	 * it and mm are being updated, which could cause problems for
@@ -1053,6 +1045,7 @@ static int exec_mmap(struct mm_struct *mm)
 	activate_mm(active_mm, mm);
 	if (IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
 		local_irq_enable();
+	lru_gen_use_mm(mm);
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
 	task_unlock(tsk);
@@ -1524,6 +1517,7 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 	unsigned int mode;
 	kuid_t uid;
 	kgid_t gid;
+	int err;
 
 	/*
 	 * Since this can be called multiple times (via prepare_binprm),
@@ -1548,11 +1542,16 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 	/* Be careful if suid/sgid is set */
 	inode_lock(inode);
 
-	/* reload atomically mode/uid/gid now that lock held */
+	/* Atomically reload and check mode/uid/gid now that lock held. */
 	mode = inode->i_mode;
 	uid = inode->i_uid;
 	gid = inode->i_gid;
+	err = inode_permission(inode, MAY_EXEC);
 	inode_unlock(inode);
+
+	/* Did the exec bit vanish out from under us? Give up. */
+	if (err)
+		return;
 
 	/* We ignore suid/sgid if there are no mappings for them in the ns */
 	if (!kuid_has_mapping(bprm->cred->user_ns, uid) ||
@@ -1844,19 +1843,6 @@ static int do_execveat_common(int fd, struct filename *filename,
 	retval = exec_binprm(bprm);
 	if (retval < 0)
 		goto out;
-
-	if (is_global_init(current->parent)) {
-		if (unlikely(!strncmp(filename->name,
-					   HWCOMPOSER_BIN_PREFIX,
-					   strlen(HWCOMPOSER_BIN_PREFIX)))) {
-			current->flags |= PF_PERF_CRITICAL;
-			set_cpus_allowed_ptr(current, cpu_perf_mask);
-		} else if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN))) {
-			zygote32_sig = current->signal;
-		} else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN))) {
-			zygote64_sig = current->signal;
-		}
-	}
 
 	/* execve succeeded */
 	current->fs->in_exec = 0;

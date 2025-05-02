@@ -916,8 +916,7 @@ int qlcnic_82xx_mq_intrpt(struct qlcnic_adapter *adapter, int op_type)
 	if (qlcnic_check_multi_tx(adapter) &&
 	    !ahw->diag_test &&
 	    (adapter->flags & QLCNIC_MSIX_ENABLED)) {
-		ahw->intr_tbl = vzalloc(ahw->num_msix *
-					sizeof(struct qlcnic_intrpt_config));
+		ahw->intr_tbl = vzalloc(array_size(sizeof(struct qlcnic_intrpt_config), ahw->num_msix));
 		if (!ahw->intr_tbl)
 			return -ENOMEM;
 
@@ -1025,15 +1024,17 @@ int qlcnic_init_pci_info(struct qlcnic_adapter *adapter)
 
 	act_pci_func = ahw->total_nic_func;
 
-	adapter->npars = kzalloc(sizeof(struct qlcnic_npar_info) *
-				 act_pci_func, GFP_KERNEL);
+	adapter->npars = kcalloc(act_pci_func,
+				 sizeof(struct qlcnic_npar_info),
+				 GFP_KERNEL);
 	if (!adapter->npars) {
 		ret = -ENOMEM;
 		goto err_pci_info;
 	}
 
-	adapter->eswitch = kzalloc(sizeof(struct qlcnic_eswitch) *
-				QLCNIC_NIU_MAX_XG_PORTS, GFP_KERNEL);
+	adapter->eswitch = kcalloc(QLCNIC_NIU_MAX_XG_PORTS,
+				   sizeof(struct qlcnic_eswitch),
+				   GFP_KERNEL);
 	if (!adapter->eswitch) {
 		ret = -ENOMEM;
 		goto err_npars;
@@ -2641,7 +2642,13 @@ qlcnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			 "Device does not support MSI interrupts\n");
 
 	if (qlcnic_82xx_check(adapter)) {
-		qlcnic_dcb_enable(adapter->dcb);
+		err = qlcnic_dcb_enable(adapter->dcb);
+		if (err) {
+			qlcnic_dcb_free(adapter->dcb);
+			dev_err(&pdev->dev, "Failed to enable DCB\n");
+			goto err_out_free_hw;
+		}
+
 		qlcnic_dcb_get_info(adapter->dcb);
 		err = qlcnic_setup_intr(adapter);
 

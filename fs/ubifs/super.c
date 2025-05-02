@@ -765,10 +765,10 @@ static void init_constants_master(struct ubifs_info *c)
 	 * necessary to report something for the 'statfs()' call.
 	 *
 	 * Subtract the LEB reserved for GC, the LEB which is reserved for
-	 * deletions, minimum LEBs for the index, and assume only one journal
-	 * head is available.
+	 * deletions, minimum LEBs for the index, the LEBs which are reserved
+	 * for each journal head.
 	 */
-	tmp64 = c->main_lebs - 1 - 1 - MIN_INDEX_LEBS - c->jhead_cnt + 1;
+	tmp64 = c->main_lebs - 1 - 1 - MIN_INDEX_LEBS - c->jhead_cnt;
 	tmp64 *= (long long)c->leb_size - c->leb_overhead;
 	tmp64 = ubifs_reported_space(c, tmp64);
 	c->block_cnt = tmp64 >> UBIFS_BLOCK_SHIFT;
@@ -1208,7 +1208,8 @@ static int mount_ubifs(struct ubifs_info *c)
 	 * never exceed 64.
 	 */
 	err = -ENOMEM;
-	c->bottom_up_buf = kmalloc(BOTTOM_UP_HEIGHT * sizeof(int), GFP_KERNEL);
+	c->bottom_up_buf = kmalloc_array(BOTTOM_UP_HEIGHT, sizeof(int),
+					 GFP_KERNEL);
 	if (!c->bottom_up_buf)
 		goto out_free;
 
@@ -1716,7 +1717,6 @@ out:
 		kthread_stop(c->bgt);
 		c->bgt = NULL;
 	}
-	free_wbufs(c);
 	kfree(c->write_reserve_buf);
 	c->write_reserve_buf = NULL;
 	vfree(c->ileb_buf);

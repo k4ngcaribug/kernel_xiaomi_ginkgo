@@ -1,5 +1,4 @@
 /* Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,26 +33,21 @@
 #include "smb5-lib.h"
 #include "schgm-flash.h"
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 #include <linux/notifier.h>
 #include <linux/msm_drm_notify.h>
 #include <linux/fb.h>
 
 union power_supply_propval lct_therm_lvl_reserved;
 union power_supply_propval lct_therm_level;
-
 union power_supply_propval lct_therm_call_level = {5,};
-
-
 union power_supply_propval lct_therm_globe_level = {2,};
 union power_supply_propval lct_therm_india_level = {1,};
 
-
 bool lct_backlight_off;
 int LctIsInCall = 0;
-int LctThermal =0;
-//extern int hwc_check_india;
-//extern int hwc_check_global;
-//extern bool is_poweroff_charge;
+int LctThermal = 0;
+#endif
 
 static struct smb_params smb5_pmi632_params = {
 	.fcc			= {
@@ -440,7 +434,7 @@ static int smb5_parse_dt(struct smb5 *chip)
 		chip->dt.sec_charger_config == POWER_SUPPLY_CHARGER_SEC_PL ||
 		chip->dt.sec_charger_config == POWER_SUPPLY_CHARGER_SEC_CP_PL;
 
-#ifndef CONFIG_MACH_XIAOMI_C3J
+#ifndef CONFIG_MACH_XIAOMI_GINKGO
 	chg->step_chg_enabled = of_property_read_bool(node,
 				"qcom,step-charging-enable");
 #endif
@@ -597,7 +591,7 @@ static int smb5_parse_dt(struct smb5 *chip)
 	chg->hw_die_temp_mitigation = of_property_read_bool(node,
 					"qcom,hw-die-temp-mitigation");
 
-#ifndef CONFIG_MACH_XIAOMI_C3J
+#ifndef CONFIG_MACH_XIAOMI_GINKGO
 	chg->hw_connector_mitigation = of_property_read_bool(node,
 					"qcom,hw-connector-mitigation");
 #endif
@@ -609,7 +603,7 @@ static int smb5_parse_dt(struct smb5 *chip)
 					"qcom,en-skin-therm-mitigation");
 
 	chg->connector_pull_up = -EINVAL;
-#ifndef CONFIG_MACH_XIAOMI_C3J
+#ifndef CONFIG_MACH_XIAOMI_GINKGO
 	of_property_read_u32(node, "qcom,connector-internal-pull-kohm",
 					&chg->connector_pull_up);
 #endif
@@ -1161,7 +1155,7 @@ static int smb5_usb_set_prop(struct power_supply *psy,
 		smblib_rerun_apsd(chg);
 		break;
 	default:
-		pr_debug("set prop %d is not supported\n", psp);
+		pr_err("set prop %d is not supported\n", psp);
 		rc = -EINVAL;
 		break;
 	}
@@ -1202,12 +1196,20 @@ static int smb5_init_usb_psy(struct smb5 *chip)
 	struct power_supply_config usb_cfg = {};
 	struct smb_charger *chg = &chip->chg;
 
-    chg->usb_psy_desc = usb_psy_desc;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+	chg->usb_psy_desc = usb_psy_desc;
+#endif
 	usb_cfg.drv_data = chip;
 	usb_cfg.of_node = chg->dev->of_node;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	chg->usb_psy = devm_power_supply_register(chg->dev,
 						  &chg->usb_psy_desc,
 						  &usb_cfg);
+#else
+	chg->usb_psy = devm_power_supply_register(chg->dev,
+						  &usb_psy_desc,
+						  &usb_cfg);
+#endif
 	if (IS_ERR(chg->usb_psy)) {
 		pr_err("Couldn't register USB power supply\n");
 		return PTR_ERR(chg->usb_psy);
@@ -1278,7 +1280,7 @@ static int smb5_usb_port_set_prop(struct power_supply *psy,
 
 	switch (psp) {
 	default:
-		pr_debug("Set prop %d is not supported in pc_port\n",
+		pr_err_ratelimited("Set prop %d is not supported in pc_port\n",
 				psp);
 		rc = -EINVAL;
 		break;
@@ -1730,11 +1732,13 @@ static enum power_supply_property smb5_batt_props[] = {
 	POWER_SUPPLY_PROP_RECHARGE_SOC,
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_FORCE_RECHARGE,
+	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_TIME_TO_FULL_NOW,
 	POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE,
-	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	POWER_SUPPLY_PROP_CHARGING_ENABLED,
 	POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL,
+#endif
 };
 
 #define DEBUG_ACCESSORY_TEMP_DECIDEGC	250
@@ -1800,6 +1804,10 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		rc = smblib_get_prop_from_bms(chg,
 				POWER_SUPPLY_PROP_CURRENT_NOW, val);
+#ifndef CONFIG_MACH_XIAOMI_GINKGO
+		if (!rc)
+			val->intval *= (-1);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_QNOVO:
 		val->intval = get_client_vote_locked(chg->fcc_votable,
@@ -1823,7 +1831,11 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 						POWER_SUPPLY_PROP_TEMP, val);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
+#else
+		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_DONE:
 		rc = smblib_get_prop_batt_charge_done(chg, val);
@@ -1869,6 +1881,14 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_FORCE_RECHARGE:
 		val->intval = 0;
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+		val->intval = 4000;
+#else
+		rc = smblib_get_prop_from_bms(chg,
+				POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, val);
+#endif
+		break;
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
 		rc = smblib_get_prop_from_bms(chg,
 				POWER_SUPPLY_PROP_TIME_TO_FULL_NOW, val);
@@ -1876,15 +1896,14 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE:
 		val->intval = chg->fcc_stepper_enable;
 		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = 4000;
-		break;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 		rc = smblib_get_prop_battery_charging_enabled(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 		rc = smblib_get_prop_system_temp_level(chg, val);
 		break;
+#endif
 	default:
 		pr_err("batt power supply prop %d not supported\n", psp);
 		return -EINVAL;
@@ -1983,12 +2002,14 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 			vote(chg->chg_disable_votable, FORCE_RECHARGE_VOTER,
 					false, 0);
 		break;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 		rc = smblib_set_prop_battery_charging_enabled(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE:
 		chg->fcc_stepper_enable = val->intval;
 		break;
@@ -2013,7 +2034,9 @@ static int smb5_batt_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMITED:
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 	case POWER_SUPPLY_PROP_DIE_HEALTH:
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+#endif
 		return 1;
 	default:
 		break;
@@ -3104,24 +3127,27 @@ static int smb5_init_hw(struct smb5 *chip)
 		return rc;
 	}
 
-	rc = smblib_masked_write(chg,USBIN_9V_AICL_THRESHOLD_REG,USBIN_9V_AICL_MASK,USBIN_9V_AICL_THRESHOLD_CFG);
-	if(rc < 0){
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
+	rc = smblib_masked_write(chg, USBIN_9V_AICL_THRESHOLD_REG,USBIN_9V_AICL_MASK, USBIN_9V_AICL_THRESHOLD_CFG);
+	if (rc < 0) {
 		dev_err(chg->dev, "Couldn't configure USBIN_9V_AICL_THRESHOLD_REG rc=%d\n",
 				rc);
 		return rc;
 	}
-		/*
+
+	/*
 	 * 1. set 0x154a bit2 to 1 to fix huawei scp cable 3A for SDP issue
 	 * 2. set 0x154a bit3 to 0 to enable AICL for debug access mode cable
 	 */
 	rc = smblib_masked_write(chg, TYPE_C_DEBUG_ACC_SNK_CFG,
-			TYPEC_DEBUG_ACC_SNK_SEL_ICL | TYPEC_DEBUG_ACC_SNK_DIS_AICL|TYPEC_DEBUG_ENABLE_ACC_SNK|TYPEC_DEBUG_ENABLE_CHG_ON_SNK,
-			TYPEC_DEBUG_ACC_SNK_SEL_ICL| TYPEC_DEBUG_ENABLE_ACC_SNK | TYPEC_DEBUG_ENABLE_CHG_ON_SNK);
+			TYPEC_DEBUG_ACC_SNK_SEL_ICL | TYPEC_DEBUG_ACC_SNK_DIS_AICL | TYPEC_DEBUG_ENABLE_ACC_SNK | TYPEC_DEBUG_ENABLE_CHG_ON_SNK,
+			TYPEC_DEBUG_ACC_SNK_SEL_ICL | TYPEC_DEBUG_ENABLE_ACC_SNK | TYPEC_DEBUG_ENABLE_CHG_ON_SNK);
 	if (rc < 0) {
 		dev_err(chg->dev, "Couldn't configure TYPE_C_DEBUG_ACC_SNK_CFG rc=%d\n",
 				rc);
 		return rc;
 	}
+#endif
 	if (chg->connector_pull_up != -EINVAL) {
 		rc = smb5_configure_internal_pull(chg, CONN_THERM,
 				get_valid_pullup(chg->connector_pull_up));
@@ -3651,13 +3677,14 @@ static void smb5_create_debugfs(struct smb5 *chip)
 
 #endif
 
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 static ssize_t lct_thermal_call_status_show(struct device *dev,
 					struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", LctIsInCall);
 }
 static ssize_t lct_thermal_call_status_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+					struct device_attribute *attr, const char *buf, size_t count)
 {
 	int retval;
 	unsigned long input;
@@ -3668,7 +3695,7 @@ static ssize_t lct_thermal_call_status_store(struct device *dev,
 		return retval;
 	}
 
-    LctIsInCall = input;
+	LctIsInCall = input;
 	pr_info("IsInCall = %d\n", LctIsInCall);
 
 	return count;
@@ -3682,20 +3709,20 @@ static struct device_attribute attrs2[] = {
 static void thermal_fb_notifier_resume_work(struct work_struct *work)
 {
 	struct smb_charger *chg = container_of(work, struct smb_charger, fb_notify_work);
+
 	LctThermal = 1;
 
-		if ((lct_backlight_off) && (LctIsInCall == 0) )
-		{
-			if (lct_therm_lvl_reserved.intval >= 2)
-				smblib_set_prop_system_temp_level(chg,&lct_therm_globe_level);//level 2 2.2A
+	if ((lct_backlight_off) && (LctIsInCall == 0)) {
+		if (lct_therm_lvl_reserved.intval >= 2)
+			smblib_set_prop_system_temp_level(chg,&lct_therm_globe_level); /* level 2 2.2A */
 		else
-			smblib_set_prop_system_temp_level(chg,&lct_therm_lvl_reserved);//from thermal-level
-		}
-		else if (LctIsInCall == 1)
-			smblib_set_prop_system_temp_level(chg,&lct_therm_call_level);//level 5 800ma
-		else
-			smblib_set_prop_system_temp_level(chg,&lct_therm_lvl_reserved);//from thermal-levle
-		LctThermal = 0;
+			smblib_set_prop_system_temp_level(chg,&lct_therm_lvl_reserved); /* from thermal-level */
+	} else if (LctIsInCall == 1)
+		smblib_set_prop_system_temp_level(chg,&lct_therm_call_level); /* level 5 800ma */
+	else
+		smblib_set_prop_system_temp_level(chg,&lct_therm_lvl_reserved); /* from thermal-level */
+
+	LctThermal = 0;
 }
 
 /* frame buffer notifier block control the suspend/resume procedure */
@@ -3704,17 +3731,15 @@ static int thermal_notifier_callback(struct notifier_block *noti, unsigned long 
 	struct fb_event *ev_data = data;
 	struct smb_charger *chg = container_of(noti, struct smb_charger, notifier);
 	int *blank;
-	printk("%s %d",__FUNCTION__,__LINE__);
 	if (ev_data && ev_data->data && chg) {
 		blank = ev_data->data;
 		if (event == MSM_DRM_EARLY_EVENT_BLANK && *blank == MSM_DRM_BLANK_UNBLANK) {
 			lct_backlight_off = false;
-			pr_info("thermal_notifier lct_backlight_off:%d",lct_backlight_off);
+			pr_debug("thermal_notifier lct_backlight_off:%d", lct_backlight_off);
 			schedule_work(&chg->fb_notify_work);
-		}
-		else if (event == MSM_DRM_EVENT_BLANK && *blank == MSM_DRM_BLANK_POWERDOWN) {
+		} else if (event == MSM_DRM_EVENT_BLANK && *blank == MSM_DRM_BLANK_POWERDOWN) {
 			lct_backlight_off = true;
-			pr_info("thermal_notifier lct_backlight_off:%d",lct_backlight_off);
+			pr_debug("thermal_notifier lct_backlight_off:%d",lct_backlight_off);
 			schedule_work(&chg->fb_notify_work);
 		}
 	}
@@ -3728,21 +3753,19 @@ static int lct_register_powermanger(struct smb_charger *chg)
 
 	chg->notifier.notifier_call = thermal_notifier_callback;
 	ret = msm_drm_register_client(&chg->notifier);
-    if (ret)
-        pr_err("[FB]Unable to register fb_notifier: %d", ret);
+	if (ret)
+		pr_err("[FB]Unable to register fb_notifier: %d", ret);
 
 	return 0;
 }
 
 static int lct_unregister_powermanger(struct smb_charger *chg)
 {
-
 	msm_drm_unregister_client(&chg->notifier);
 
 	return 0;
 }
-
-
+#endif
 
 static int smb5_show_charger_status(struct smb5 *chip)
 {
@@ -3790,7 +3813,9 @@ static int smb5_probe(struct platform_device *pdev)
 	struct smb5 *chip;
 	struct smb_charger *chg;
 	int rc = 0;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	unsigned char attr_count2;
+#endif
 
 	chip = devm_kzalloc(&pdev->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
@@ -3940,16 +3965,19 @@ static int smb5_probe(struct platform_device *pdev)
 		pr_err("Couldn't initialize batt psy rc=%d\n", rc);
 		goto cleanup;
 	}
+
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	pr_info("enter sysfs create file thermal\n");
 	for (attr_count2 = 0; attr_count2 < ARRAY_SIZE(attrs2); attr_count2++) {
-		    rc = sysfs_create_file(&chg->dev->kobj,
-						&attrs2[attr_count2].attr);
-			if (rc < 0) {
-				pr_info(" sysfs create file fail %d\n",rc);
-		        sysfs_remove_file(&chg->dev->kobj,
-						&attrs2[attr_count2].attr);
-			}
+		rc = sysfs_create_file(&chg->dev->kobj,
+					&attrs2[attr_count2].attr);
+		if (rc < 0) {
+			pr_info(" sysfs create file fail %d\n",rc);
+			sysfs_remove_file(&chg->dev->kobj,
+					&attrs2[attr_count2].attr);
 		}
+	}
+#endif
 	/* Register android dual-role class */
 	rc = smb5_init_dual_role_class(chip);
 	if (rc < 0) {
@@ -3987,15 +4015,17 @@ static int smb5_probe(struct platform_device *pdev)
 
 	device_init_wakeup(chg->dev, true);
 
+	if (chg->dcin_uusb_over_gpio_en && gpio_is_valid(chg->micro_usb_gpio))
+		smb_micro_usb_irq_handler(chg->micro_usb_irq, chg);
+		
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	lct_therm_lvl_reserved.intval= 0;
-	lct_therm_level.intval= 0;
+	lct_therm_level.intval = 0;
 	lct_backlight_off = false;
 	INIT_WORK(&chg->fb_notify_work, thermal_fb_notifier_resume_work);
 	/* register suspend and resume fucntion*/
 	lct_register_powermanger(chg);
-
-	if (chg->dcin_uusb_over_gpio_en && gpio_is_valid(chg->micro_usb_gpio))
-		smb_micro_usb_irq_handler(chg->micro_usb_irq, chg);
+#endif
 
 	pr_info("QPNP SMB5 probed successfully\n");
 
@@ -4014,13 +4044,15 @@ static int smb5_remove(struct platform_device *pdev)
 {
 	struct smb5 *chip = platform_get_drvdata(pdev);
 	struct smb_charger *chg = &chip->chg;
+#ifdef CONFIG_MACH_XIAOMI_GINKGO
 	unsigned char attr_count2;
 
 	for (attr_count2 = 0; attr_count2 < ARRAY_SIZE(attrs2); attr_count2++) {
-			  sysfs_remove_file(&chg->dev->kobj,
-							&attrs2[attr_count2].attr);
-			}
+		sysfs_remove_file(&chg->dev->kobj, &attrs2[attr_count2].attr);
+	}
+
 	lct_unregister_powermanger(chg);
+#endif
 
 	/* force enable APSD */
 	smblib_masked_write(chg, USBIN_OPTIONS_1_CFG_REG,

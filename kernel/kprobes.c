@@ -418,8 +418,8 @@ static inline int kprobe_optready(struct kprobe *p)
 	return 0;
 }
 
-/* Return true(!0) if the kprobe is disarmed. Note: p must be on hash list */
-static inline int kprobe_disarmed(struct kprobe *p)
+/* Return true if the kprobe is disarmed. Note: p must be on hash list */
+bool kprobe_disarmed(struct kprobe *p)
 {
 	struct optimized_kprobe *op;
 
@@ -626,7 +626,7 @@ void wait_for_kprobe_optimizer(void)
 	mutex_unlock(&kprobe_mutex);
 }
 
-static bool optprobe_queued_unopt(struct optimized_kprobe *op)
+bool optprobe_queued_unopt(struct optimized_kprobe *op)
 {
 	struct optimized_kprobe *_op;
 
@@ -963,15 +963,15 @@ static void __disarm_kprobe(struct kprobe *p, bool reopt)
 
 #else /* !CONFIG_OPTPROBES */
 
-#define optimize_kprobe(p)			do {} while (0)
-#define unoptimize_kprobe(p, f)			do {} while (0)
-#define kill_optimized_kprobe(p)		do {} while (0)
-#define prepare_optimized_kprobe(p)		do {} while (0)
-#define try_to_optimize_kprobe(p)		do {} while (0)
+#define optimize_kprobe(p)			((void)0)
+#define unoptimize_kprobe(p, f)			((void)0)
+#define kill_optimized_kprobe(p)		((void)0)
+#define prepare_optimized_kprobe(p)		((void)0)
+#define try_to_optimize_kprobe(p)		((void)0)
 #define __arm_kprobe(p)				arch_arm_kprobe(p)
 #define __disarm_kprobe(p, o)			arch_disarm_kprobe(p)
 #define kprobe_disarmed(p)			kprobe_disabled(p)
-#define wait_for_kprobe_optimizer()		do {} while (0)
+#define wait_for_kprobe_optimizer()		((void)0)
 
 static int reuse_unused_kprobe(struct kprobe *ap)
 {
@@ -1044,8 +1044,8 @@ static void disarm_kprobe_ftrace(struct kprobe *p)
 }
 #else	/* !CONFIG_KPROBES_ON_FTRACE */
 #define prepare_kprobe(p)	arch_prepare_kprobe(p)
-#define arm_kprobe_ftrace(p)	do {} while (0)
-#define disarm_kprobe_ftrace(p)	do {} while (0)
+#define arm_kprobe_ftrace(p)	((void)0)
+#define disarm_kprobe_ftrace(p)	((void)0)
 #endif
 
 /* Arm a kprobe with text_mutex */
@@ -1550,8 +1550,17 @@ static int check_kprobe_address_safe(struct kprobe *p,
 	jump_label_lock();
 	preempt_disable();
 
-	/* Ensure it is not in reserved area nor out of text */
-	if (!kernel_text_address((unsigned long) p->addr) ||
+	/* Ensure the address is in a text area, and find a module if exists. */
+	*probed_mod = NULL;
+	if (!core_kernel_text((unsigned long) p->addr)) {
+		*probed_mod = __module_text_address((unsigned long) p->addr);
+		if (!(*probed_mod)) {
+			ret = -EINVAL;
+			goto out;
+		}
+	}
+	/* Ensure it is not in reserved area. */
+	if (in_gate_area_no_mm((unsigned long) p->addr) ||
 	    within_kprobe_blacklist((unsigned long) p->addr) ||
 	    jump_label_text_reserved(p->addr, p->addr) ||
 	    find_bug((unsigned long)p->addr)) {
@@ -1559,8 +1568,7 @@ static int check_kprobe_address_safe(struct kprobe *p,
 		goto out;
 	}
 
-	/* Check if are we probing a module */
-	*probed_mod = __module_text_address((unsigned long) p->addr);
+	/* Get module refcount and reject __init functions for loaded modules. */
 	if (*probed_mod) {
 		/*
 		 * We must hold a refcount of the probed module while updating
@@ -1686,12 +1694,14 @@ static struct kprobe *__disable_kprobe(struct kprobe *p)
 		/* Try to disarm and disable this/parent probe */
 		if (p == orig_p || aggr_kprobe_disabled(orig_p)) {
 			/*
-			 * If kprobes_all_disarmed is set, orig_p
-			 * should have already been disarmed, so
-			 * skip unneed disarming process.
+			 * Don't be lazy here.  Even if 'kprobes_all_disarmed'
+			 * is false, 'orig_p' might not have been armed yet.
+			 * Note arm_all_kprobes() __tries__ to arm all kprobes
+			 * on the best effort basis.
 			 */
-			if (!kprobes_all_disarmed)
+			if (!kprobes_all_disarmed && !kprobe_disabled(orig_p))
 				disarm_kprobe(orig_p, true);
+
 			orig_p->flags |= KPROBE_FLAG_DISABLED;
 		}
 	}
@@ -2003,6 +2013,9 @@ int register_kretprobe(struct kretprobe *rp)
 				return -EINVAL;
 		}
 	}
+
+	if (rp->data_size > KRETPROBE_MAX_DATA_SIZE)
+		return -E2BIG;
 
 	rp->kp.pre_handler = pre_handler_kretprobe;
 	rp->kp.post_handler = NULL;
@@ -2464,7 +2477,7 @@ static int kprobe_blacklist_seq_show(struct seq_file *m, void *v)
 	struct kprobe_blacklist_entry *ent =
 		list_entry(v, struct kprobe_blacklist_entry, list);
 
-	seq_printf(m, "0x%p-0x%p\t%ps\n", (void *)ent->start_addr,
+	seq_printf(m, "0x%px-0x%px\t%ps\n", (void *)ent->start_addr,
 		   (void *)ent->end_addr, (void *)ent->start_addr);
 	return 0;
 }

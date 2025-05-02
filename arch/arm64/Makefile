@@ -67,33 +67,27 @@ $(warning Detected assembler with broken .inst; disassembly will be unreliable)
 endif
 
 ifeq ($(CONFIG_COMPAT_VDSO), y)
-  CROSS_COMPILE_ARM32 ?= $(CONFIG_CROSS_COMPILE_ARM32:"%"=%)
+  CROSS_COMPILE_COMPAT ?= $(CONFIG_CROSS_COMPILE_COMPAT:"%"=%)
 
   # Check that the user has provided a valid prefix for the 32-bit toolchain.
   # To prevent selecting the system $(cc-name) by default, the prefix is not
   # allowed to be empty, unlike CROSS_COMPILE. In the unlikely event that the
   # system $(cc-name) is actually the 32-bit ARM compiler to be used, the
-  # variable can be set to the dirname (e.g. CROSS_COMPILE_ARM32=/usr/bin/).
+  # variable can be set to the dirname (e.g. CROSS_COMPILE_COMPAT=/usr/bin/).
   # Note: this Makefile is read both before and after regenerating the config
   # (if needed). Any warning appearing before the config has been regenerated
   # should be ignored. If the error is triggered and you set
-  # CONFIG_CROSS_COMPILE_ARM32, set CROSS_COMPILE_ARM32 to an appropriate value
-  # when invoking make and fix CONFIG_CROSS_COMPILE_ARM32.
-  ifeq ($(CROSS_COMPILE_ARM32),)
-    $(error CROSS_COMPILE_ARM32 not defined or empty, the compat vDSO will not be built)
-  else ifeq ($(cc-name),clang)
-    export CLANG_TRIPLE_ARM32 ?= $(CROSS_COMPILE_ARM32)
-    export CLANG_TARGET_ARM32 := --target=$(notdir $(CLANG_TRIPLE_ARM32:%-=%))
-    export GCC_TOOLCHAIN32_DIR := $(dir $(shell which $(CROSS_COMPILE_ARM32)ld))
-    export GCC_TOOLCHAIN32 := $(realpath $(GCC_TOOLCHAIN32_DIR)/..)
-    export CLANG_PREFIX32 := --prefix=$(GCC_TOOLCHAIN32_DIR)$(notdir $(CROSS_COMPILE_ARM32))
-    export CLANG_GCC32_TC := --gcc-toolchain=$(GCC_TOOLCHAIN32)
+  # CONFIG_CROSS_COMPILE_COMPAT, set CROSS_COMPILE_COMPAT to an appropriate value
+  # when invoking make and fix CONFIG_CROSS_COMPILE_COMPAT.
+  ifeq ($(cc-name),clang)
     export CONFIG_VDSO32 := y
     vdso32 := -DCONFIG_VDSO32=1
-  else ifeq ($(shell which $(CROSS_COMPILE_ARM32)$(cc-name) 2> /dev/null),)
-    $(error $(CROSS_COMPILE_ARM32)$(cc-name) not found, check CROSS_COMPILE_ARM32)
+  else ifeq ($(CROSS_COMPILE_COMPAT),)
+    $(error CROSS_COMPILE_COMPAT not defined or empty, the compat vDSO will not be built)
+  else ifeq ($(shell which $(CROSS_COMPILE_COMPAT)$(cc-name) 2> /dev/null),)
+    $(error $(CROSS_COMPILE_COMPAT)$(cc-name) not found, check CROSS_COMPILE_COMPAT)
   else
-    export CROSS_COMPILE_ARM32
+    export CROSS_COMPILE_COMPAT
     export CONFIG_VDSO32 := y
     vdso32 := -DCONFIG_VDSO32=1
   endif
@@ -120,6 +114,7 @@ ifeq ($(CONFIG_SHADOW_CALL_STACK), y)
 KBUILD_CFLAGS	+= -ffixed-x18
 endif
 
+
 ifeq ($(cc-name),clang)
 KBUILD_CFLAGS	+= -DCONFIG_ARCH_SUPPORTS_INT128
 else
@@ -134,7 +129,7 @@ LD		+= -EB
 ifeq ($(ld-name),gold)
 LDFLAGS		+= -maarch64_elf64_be_vec
 else
-LDFLAGS		+= -maarch64linuxb
+LDFLAGS		+= -maarch64elfb
 endif
 UTS_MACHINE	:= aarch64_be
 else
@@ -145,7 +140,7 @@ LD		+= -EL
 ifeq ($(ld-name),gold)
 LDFLAGS		+= -maarch64_elf64_le_vec
 else
-LDFLAGS		+= -maarch64linux
+LDFLAGS		+= -maarch64elf
 endif
 UTS_MACHINE	:= aarch64
 endif
@@ -270,6 +265,7 @@ endif
 PHONY += vdso_install
 vdso_install:
 	$(Q)$(MAKE) $(build)=arch/arm64/kernel/vdso $@
+	$(Q)$(MAKE) $(build)=arch/arm64/kernel/vdso32 $@
 
 # We use MRPROPER_FILES and CLEAN_FILES now
 archclean:

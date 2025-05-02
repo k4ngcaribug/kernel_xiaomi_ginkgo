@@ -639,6 +639,9 @@ static int amdgpu_cgs_get_firmware_info(struct cgs_device *cgs_device,
 		struct amdgpu_firmware_info *ucode;
 
 		id = fw_type_convert(cgs_device, type);
+		if (id >= AMDGPU_UCODE_ID_MAXIMUM)
+			return -EINVAL;
+
 		ucode = &adev->firmware.ucode[id];
 		if (ucode->fw == NULL)
 			return -EINVAL;
@@ -973,7 +976,9 @@ static int amdgpu_cgs_acpi_eval_object(struct cgs_device *cgs_device,
 	/* parse input parameters */
 	if (input.count > 0) {
 		input.pointer = params =
-				kzalloc(sizeof(union acpi_object) * input.count, GFP_KERNEL);
+				kcalloc(input.count,
+					sizeof(union acpi_object),
+					GFP_KERNEL);
 		if (params == NULL)
 			return -EINVAL;
 

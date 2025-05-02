@@ -594,7 +594,7 @@ int ext4_ext_precache(struct inode *inode)
 	down_read(&ei->i_data_sem);
 	depth = ext_depth(inode);
 
-	path = kzalloc(sizeof(struct ext4_ext_path) * (depth + 1),
+	path = kcalloc(depth + 1, sizeof(struct ext4_ext_path),
 		       GFP_NOFS);
 	if (path == NULL) {
 		up_read(&ei->i_data_sem);
@@ -903,7 +903,7 @@ ext4_find_extent(struct inode *inode, ext4_lblk_t block,
 	}
 	if (!path) {
 		/* account possible depth increase */
-		path = kzalloc(sizeof(struct ext4_ext_path) * (depth + 2),
+		path = kcalloc(depth + 2, sizeof(struct ext4_ext_path),
 				GFP_NOFS);
 		if (unlikely(!path))
 			return ERR_PTR(-ENOMEM);
@@ -1002,6 +1002,11 @@ static int ext4_ext_insert_index(handle_t *handle, struct inode *inode,
 		ix = curp->p_idx;
 	}
 
+	if (unlikely(ix > EXT_MAX_INDEX(curp->p_hdr))) {
+		EXT4_ERROR_INODE(inode, "ix > EXT_MAX_INDEX!");
+		return -EFSCORRUPTED;
+	}
+
 	len = EXT_LAST_INDEX(curp->p_hdr) - ix + 1;
 	BUG_ON(len < 0);
 	if (len > 0) {
@@ -1009,11 +1014,6 @@ static int ext4_ext_insert_index(handle_t *handle, struct inode *inode,
 				"move %d indices from 0x%p to 0x%p\n",
 				logical, len, ix, ix + 1);
 		memmove(ix + 1, ix, len * sizeof(struct ext4_extent_idx));
-	}
-
-	if (unlikely(ix > EXT_MAX_INDEX(curp->p_hdr))) {
-		EXT4_ERROR_INODE(inode, "ix > EXT_MAX_INDEX!");
-		return -EFSCORRUPTED;
 	}
 
 	ix->ei_block = cpu_to_le32(logical);
@@ -1090,7 +1090,7 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 	 * We need this to handle errors and free blocks
 	 * upon them.
 	 */
-	ablocks = kzalloc(sizeof(ext4_fsblk_t) * depth, GFP_NOFS);
+	ablocks = kcalloc(depth, sizeof(ext4_fsblk_t), GFP_NOFS);
 	if (!ablocks)
 		return -ENOMEM;
 
@@ -1877,6 +1877,7 @@ static void ext4_ext_try_to_merge_up(handle_t *handle,
 	path[0].p_hdr->eh_max = cpu_to_le16(max_root);
 
 	brelse(path[1].p_bh);
+	path[1].p_bh = NULL;
 	ext4_free_blocks(handle, inode, NULL, blk, 1,
 			 EXT4_FREE_BLOCKS_METADATA | EXT4_FREE_BLOCKS_FORGET);
 }
@@ -2104,6 +2105,7 @@ prepend:
 				       ppath, newext);
 	if (err)
 		goto cleanup;
+	path = *ppath;
 	depth = ext_depth(inode);
 	eh = path[depth].p_hdr;
 
@@ -2962,7 +2964,7 @@ again:
 			path[k].p_block =
 				le16_to_cpu(path[k].p_hdr->eh_entries)+1;
 	} else {
-		path = kzalloc(sizeof(struct ext4_ext_path) * (depth + 1),
+		path = kcalloc(depth + 1, sizeof(struct ext4_ext_path),
 			       GFP_NOFS);
 		if (path == NULL) {
 			ext4_journal_stop(handle);
@@ -3278,7 +3280,7 @@ static int ext4_split_extent_at(handle_t *handle,
 		ext4_ext_mark_unwritten(ex2);
 
 	err = ext4_ext_insert_extent(handle, inode, ppath, &newex, flags);
-	if (err != -ENOSPC && err != -EDQUOT)
+	if (err != -ENOSPC && err != -EDQUOT && err != -ENOMEM)
 		goto out;
 
 	if (EXT4_EXT_MAY_ZEROOUT & split_flag) {
@@ -3450,9 +3452,10 @@ static int ext4_ext_convert_to_initialized(handle_t *handle,
 	struct ext4_extent *ex, *abut_ex;
 	ext4_lblk_t ee_block, eof_block;
 	unsigned int ee_len, depth, map_len = map->m_len;
-	int allocated = 0, max_zeroout = 0;
 	int err = 0;
 	int split_flag = EXT4_EXT_DATA_VALID2;
+	int allocated = 0;
+	unsigned int max_zeroout = 0;
 
 	ext_debug("ext4_ext_convert_to_initialized: inode %lu, logical"
 		"block %llu, max_blocks %u\n", inode->i_ino,
@@ -5726,6 +5729,7 @@ int ext4_insert_range(struct inode *inode, loff_t offset, loff_t len)
 	path = ext4_find_extent(inode, offset_lblk, NULL, 0);
 	if (IS_ERR(path)) {
 		up_write(&EXT4_I(inode)->i_data_sem);
+		ret = PTR_ERR(path);
 		goto out_stop;
 	}
 

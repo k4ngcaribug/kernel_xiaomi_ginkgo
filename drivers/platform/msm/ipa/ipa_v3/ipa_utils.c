@@ -4246,18 +4246,18 @@ int ipa3_get_ep_mapping(enum ipa_client_type client)
 	int ipa_ep_idx;
 	u8 hw_idx = ipa3_get_hw_type_index();
 
-	if (unlikely(client >= IPA_CLIENT_MAX || client < 0)) {
+	if (client >= IPA_CLIENT_MAX || client < 0) {
 		IPAERR_RL("Bad client number! client =%d\n", client);
 		return IPA_EP_NOT_ALLOCATED;
 	}
 
-	if (unlikely(!ipa3_ep_mapping[hw_idx][client].valid))
+	if (!ipa3_ep_mapping[hw_idx][client].valid)
 		return IPA_EP_NOT_ALLOCATED;
 
 	ipa_ep_idx =
 		ipa3_ep_mapping[hw_idx][client].ipa_gsi_ep_info.ipa_ep_num;
-	if (unlikely(ipa_ep_idx < 0 || (ipa_ep_idx >= IPA3_MAX_NUM_PIPES
-		&& client != IPA_CLIENT_DUMMY_CONS)))
+	if (ipa_ep_idx < 0 || (ipa_ep_idx >= IPA3_MAX_NUM_PIPES
+		&& client != IPA_CLIENT_DUMMY_CONS))
 		return IPA_EP_NOT_ALLOCATED;
 
 	return ipa_ep_idx;
@@ -4275,7 +4275,7 @@ const struct ipa_gsi_ep_config *ipa3_get_gsi_ep_info
 	int ep_idx;
 
 	ep_idx = ipa3_get_ep_mapping(client);
-	if (unlikely(ep_idx == IPA_EP_NOT_ALLOCATED))
+	if (ep_idx == IPA_EP_NOT_ALLOCATED)
 		return NULL;
 
 	if (!ipa3_ep_mapping[ipa3_get_hw_type_index()][client].valid)
@@ -6672,7 +6672,7 @@ int ipa3_tag_process(struct ipa3_desc desc[],
 	}
 	sys = ipa3_ctx->ep[ep_idx].sys;
 
-	tag_desc = kzalloc(sizeof(*tag_desc) * IPA_TAG_MAX_DESC, GFP_KERNEL);
+	tag_desc = kcalloc(IPA_TAG_MAX_DESC, sizeof(*tag_desc), GFP_KERNEL);
 	if (!tag_desc) {
 		IPAERR("failed to allocate memory\n");
 		return -ENOMEM;
@@ -9369,7 +9369,7 @@ int ipa3_del_ipv6_nat_uc_activation_entry(uint16_t index)
 
 	mutex_lock(&ipa3_ctx->act_tbl_lock);
 	if (uc_entry->cmd_id != IPA_IPv6_NAT_COM_ID) {
-		IPAERR_RL("entry %d wrong cmd id %d\n", uc_entry->cmd_id);
+		IPAERR_RL("entry %d wrong cmd id\n", uc_entry->cmd_id);
 		res = -EFAULT;
 		goto error;
 	}

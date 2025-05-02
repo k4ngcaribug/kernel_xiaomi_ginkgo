@@ -76,12 +76,8 @@ extern struct dentry_stat_t dentry_stat;
  * large memory footprint increase).
  */
 #ifdef CONFIG_64BIT
-#ifdef CONFIG_ARM64
-# define DNAME_INLINE_LEN 32 + 192 /* 384 bytes */
-#else
 # define DNAME_INLINE_LEN 32 /* 192 bytes */
-#endif
-#else /* CONFIG_64BIT */
+#else
 # ifdef CONFIG_SMP
 #  define DNAME_INLINE_LEN 36 /* 128 bytes */
 # else
@@ -219,7 +215,7 @@ struct dentry_operations {
 
 #define DCACHE_MAY_FREE			0x00800000
 #define DCACHE_FALLTHRU			0x01000000 /* Fall through to lower layer */
-#define DCACHE_ENCRYPTED_NAME		0x02000000 /* Encrypted name (dir key was unavailable) */
+#define DCACHE_NOKEY_NAME		0x02000000 /* Encrypted name encoded without key */
 #define DCACHE_OP_REAL			0x04000000
 
 #define DCACHE_PAR_LOOKUP		0x10000000 /* being looked up (with parent locked shared) */
@@ -305,6 +301,7 @@ extern char *simple_dname(struct dentry *, char *, int);
 extern char *__d_path(const struct path *, const struct path *, char *, int);
 extern char *d_absolute_path(const struct path *, char *, int);
 extern char *d_path(const struct path *, char *, int);
+extern char *d_path_outlen(const struct path *, char *, int *);
 extern char *dentry_path_raw(struct dentry *, char *, int);
 extern char *dentry_path(struct dentry *, char *, int);
 

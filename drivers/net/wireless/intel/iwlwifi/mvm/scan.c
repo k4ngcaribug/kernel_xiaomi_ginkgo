@@ -501,7 +501,7 @@ iwl_mvm_config_sched_scan_profiles(struct iwl_mvm *mvm,
 	else
 		blacklist_len = IWL_SCAN_MAX_BLACKLIST_LEN;
 
-	blacklist = kzalloc(sizeof(*blacklist) * blacklist_len, GFP_KERNEL);
+	blacklist = kcalloc(blacklist_len, sizeof(*blacklist), GFP_KERNEL);
 	if (!blacklist)
 		return -ENOMEM;
 
@@ -1364,7 +1364,7 @@ static int iwl_mvm_check_running_scans(struct iwl_mvm *mvm, int type)
 	return -EIO;
 }
 
-#define SCAN_TIMEOUT 20000
+#define SCAN_TIMEOUT 30000
 
 void iwl_mvm_scan_timeout_wk(struct work_struct *work)
 {
@@ -1783,7 +1783,7 @@ int iwl_mvm_scan_stop(struct iwl_mvm *mvm, int type, bool notify)
 	if (!(mvm->scan_status & type))
 		return 0;
 
-	if (iwl_mvm_is_radio_killed(mvm)) {
+	if (!test_bit(STATUS_DEVICE_ENABLED, &mvm->trans->status)) {
 		ret = 0;
 		goto out;
 	}

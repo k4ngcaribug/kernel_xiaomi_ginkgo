@@ -107,22 +107,6 @@ struct task_group;
 
 #define task_is_stopped_or_traced(task)	((task->state & (__TASK_STOPPED | __TASK_TRACED)) != 0)
 
-#define task_contributes_to_load(task)	((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
-					 (task->flags & PF_FROZEN) == 0 && \
-					 (task->state & TASK_NOLOAD) == 0)
-
-/*
- * Enum for display driver to provide varying refresh rates
- */
-enum fps {
-	FPS0 = 0,
-	FPS30 = 30,
-	FPS48 = 48,
-	FPS60 = 60,
-	FPS90 = 90,
-	FPS120 = 120,
-};
-
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 
 /*
@@ -406,7 +390,7 @@ struct util_est {
 	unsigned int			enqueued;
 	unsigned int			ewma;
 #define UTIL_EST_WEIGHT_SHIFT		2
-};
+} __attribute__((__aligned__(sizeof(u64))));
 
 /*
  * The load_avg/util_avg accumulates an infinite geometric series
@@ -468,7 +452,7 @@ struct sched_avg {
 	unsigned long			load_avg;
 	unsigned long			util_avg;
 	struct util_est			util_est;
-};
+} ____cacheline_aligned;
 
 struct sched_statistics {
 #ifdef CONFIG_SCHEDSTATS
@@ -517,6 +501,16 @@ struct sched_entity {
 	u64				sum_exec_runtime;
 	u64				vruntime;
 	u64				prev_sum_exec_runtime;
+#ifdef CONFIG_SCHED_BORE
+	u64				burst_time;
+	u8				prev_burst_penalty;
+	u8				curr_burst_penalty;
+	u8				burst_penalty;
+	u8				burst_score;
+	u8				child_burst;
+	u32				child_burst_cnt;
+	u64				child_burst_last_cached;
+#endif // CONFIG_SCHED_BORE
 
 	u64				nr_migrations;
 
@@ -538,7 +532,7 @@ struct sched_entity {
 	 * Put into separate cache line so it does not
 	 * collide with read-mostly values above.
 	 */
-	struct sched_avg		avg ____cacheline_aligned_in_smp;
+	struct sched_avg		avg;
 #endif
 };
 
@@ -568,9 +562,8 @@ extern void sched_update_cpu_freq_min_max(const cpumask_t *cpus, u32 fmin,
 					  u32 fmax);
 extern int sched_set_boost(int enable);
 extern void free_task_load_ptrs(struct task_struct *p);
-extern void sched_set_refresh_rate(enum fps fps);
 
-#define RAVG_HIST_SIZE_MAX 5
+#define RAVG_HIST_SIZE_MAX  5
 #define NUM_BUSY_BUCKETS 10
 
 /* ravg represents frequency scaled cpu-demand of tasks */
@@ -614,12 +607,11 @@ struct ravg {
 	u32 sum_history[RAVG_HIST_SIZE_MAX];
 	u32 *curr_window_cpu, *prev_window_cpu;
 	u32 curr_window, prev_window;
+	u16 active_windows;
 	u32 pred_demand;
 	u8 busy_buckets[NUM_BUSY_BUCKETS];
 	u16 demand_scaled;
 	u16 pred_demand_scaled;
-	u64 active_time;
-	u64 last_win_size;
 };
 #else
 static inline void sched_exit(struct task_struct *p) { }
@@ -638,8 +630,6 @@ static inline void free_task_load_ptrs(struct task_struct *p) { }
 
 static inline void sched_update_cpu_freq_min_max(const cpumask_t *cpus,
 					u32 fmin, u32 fmax) { }
-
-static inline void sched_set_refresh_rate(enum fps fps) { }
 #endif /* CONFIG_SCHED_WALT */
 
 struct sched_rt_entity {
@@ -769,6 +759,7 @@ struct task_struct {
 	atomic_t			usage;
 	/* Per task flags (PF_*), defined further below: */
 	unsigned int			flags;
+	unsigned int			pc_flags;
 	unsigned int			ptrace;
 
 #ifdef CONFIG_SMP
@@ -782,14 +773,6 @@ struct task_struct {
 	unsigned long			wakee_flip_decay_ts;
 	struct task_struct		*last_wakee;
 
-	/*
-	 * recent_used_cpu is initially set as the last CPU used by a task
-	 * that wakes affine another task. Waker/wakee relationships can
-	 * push tasks around a CPU where each wakeup moves to the next one.
-	 * Tracking a recently used CPU allows a quick search for a recently
-	 * used CPU that may be idle.
-	 */
-	int				recent_used_cpu;
 	int				wake_cpu;
 #endif
 	int				on_rq;
@@ -820,14 +803,10 @@ struct task_struct {
 	struct list_head grp_list;
 	u64 cpu_cycles;
 	bool misfit;
-	u32 unfilter;
 #endif
 
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group		*sched_task_group;
-#endif
-#ifdef CONFIG_SCHED_TUNE
-	int				stune_idx;
 #endif
 	struct sched_dl_entity		dl;
 
@@ -892,7 +871,6 @@ struct task_struct {
 	unsigned			sched_reset_on_fork:1;
 	unsigned			sched_contributes_to_load:1;
 	unsigned			sched_migrated:1;
-	unsigned			sched_remote_wakeup:1;
 #ifdef CONFIG_PSI
 	unsigned			sched_psi_wake_requeue:1;
 #endif
@@ -901,6 +879,21 @@ struct task_struct {
 	unsigned			:0;
 
 	/* Unserialized, strictly 'current' */
+
+	/*
+	 * This field must not be in the scheduler word above due to wakelist
+	 * queueing no longer being serialized by p->on_cpu. However:
+	 *
+	 * p->XXX = X;			ttwu()
+	 * schedule()			  if (p->on_rq && ..) // false
+	 *   smp_mb__after_spinlock();	  if (smp_load_acquire(&p->on_cpu) && //true
+	 *   deactivate_task()		      ttwu_queue_wakelist())
+	 *     p->on_rq = 0;			p->sched_remote_wakeup = Y;
+	 *
+	 * guarantees all stores of 'current' are visible before
+	 * ->sched_remote_wakeup gets used, so it can be in this word.
+	 */
+	unsigned			sched_remote_wakeup:1;
 
 	/* Bit to tell LSMs we're in execve(): */
 	unsigned			in_execve:1;
@@ -914,6 +907,10 @@ struct task_struct {
 	unsigned			memcg_kmem_skip_account:1;
 #endif
 #endif
+#ifdef CONFIG_LRU_GEN
+	/* whether the LRU algorithm may apply to this access */
+	unsigned			in_lru_fault:1;
+#endif
 #ifdef CONFIG_COMPAT_BRK
 	unsigned			brk_randomized:1;
 #endif
@@ -922,6 +919,10 @@ struct task_struct {
 	unsigned			no_cgroup_migration:1;
 	/* task is frozen/stopped (used by the cgroup freezer) */
 	unsigned			frozen:1;
+#endif
+#ifdef CONFIG_PSI
+	/* Stalled due to lack of memory */
+	unsigned			in_memstall:1;
 #endif
 
 	unsigned long			atomic_flags; /* Flags requiring atomic access. */
@@ -1388,27 +1389,16 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
-#ifdef CONFIG_ANDROID_SIMPLE_LMK
-	struct task_struct		*simple_lmk_next;
-#endif
-
-#ifdef CONFIG_FUSE_SHORTCIRCUIT
-	int fuse_boost;
-#endif
-
-	struct {
-		struct work_struct work;
-		atomic_t running;
-		bool free_stack;
-	} async_free;
 
 	/*
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.
 	 */
+#ifdef CONFIG_KSU_SUSFS
+	u64 susfs_task_state;
+	u64 susfs_last_fake_mnt_id;
+#endif
 	randomized_struct_fields_end
-
-	struct fuse_package *fpack;
 
 	/* CPU-specific state of this task: */
 	struct thread_struct		thread;
@@ -1419,12 +1409,6 @@ struct task_struct {
 	 *
 	 * Do not put anything below here!
 	 */
-};
-
-struct fuse_package {
-	bool fuse_open_req;
-	struct file *filp;
-	char *iname;
 };
 
 static inline struct pid *task_pid(struct task_struct *task)
@@ -1616,7 +1600,6 @@ extern struct pid *cad_pid;
 #define PF_MEMALLOC		0x00000800	/* Allocating memory */
 #define PF_NPROC_EXCEEDED	0x00001000	/* set_user() noticed that RLIMIT_NPROC was exceeded */
 #define PF_USED_MATH		0x00002000	/* If unset the fpu must be initialized before use */
-#define PF_USED_ASYNC		0x00004000	/* Used async_schedule*(), used by module init */
 #define PF_NOFREEZE		0x00008000	/* This thread should not be frozen */
 #define PF_FROZEN		0x00010000	/* Frozen for system suspend */
 #define PF_KSWAPD		0x00020000	/* I am kswapd */
@@ -1626,14 +1609,18 @@ extern struct pid *cad_pid;
 #define PF_KTHREAD		0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE		0x00400000	/* Randomize virtual address space */
 #define PF_SWAPWRITE		0x00800000	/* Allowed to write to swap */
-#define PF_MEMSTALL		0x01000000	/* Stalled due to lack of memory */
 #define PF_NO_SETAFFINITY	0x04000000	/* Userland is not allowed to meddle with cpus_allowed */
 #define PF_MCE_EARLY		0x08000000      /* Early kill for mce process policy */
 #define PF_WAKE_UP_IDLE         0x10000000	/* TTWU on an idle CPU */
-#define PF_PERF_CRITICAL	0x10000000	/* Thread is performance-critical */
 #define PF_MUTEX_TESTER		0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP		0x40000000	/* Freezer should not count it as freezable */
 #define PF_SUSPEND_TASK		0x80000000      /* This thread called freeze_processes() and should not be frozen */
+
+/*
+ * Perf critical flags
+ */
+#define PC_LITTLE_AFFINE	0x00000001
+#define PC_PERF_AFFINE		0x00000002
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
@@ -1752,11 +1739,6 @@ static inline bool cpupri_check_rt(void)
 }
 #endif
 
-void sched_migrate_to_cpumask_start(struct cpumask *old_mask,
-				    const struct cpumask *dest);
-void sched_migrate_to_cpumask_end(const struct cpumask *old_mask,
-				  const struct cpumask *dest);
-
 #ifndef cpu_relax_yield
 #define cpu_relax_yield() cpu_relax()
 #endif
@@ -1790,7 +1772,7 @@ extern struct task_struct *idle_task(int cpu);
  *
  * Return: 1 if @p is an idle task. 0 otherwise.
  */
-static __always_inline bool is_idle_task(const struct task_struct *p)
+static inline bool is_idle_task(const struct task_struct *p)
 {
 	return !!(p->flags & PF_IDLE);
 }
@@ -1982,9 +1964,9 @@ static __always_inline bool need_resched(void)
 static inline unsigned int task_cpu(const struct task_struct *p)
 {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
-	return READ_ONCE(p->cpu);
+	return p->cpu;
 #else
-	return READ_ONCE(task_thread_info(p)->cpu);
+	return task_thread_info(p)->cpu;
 #endif
 }
 

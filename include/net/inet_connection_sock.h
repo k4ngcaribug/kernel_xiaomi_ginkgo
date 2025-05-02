@@ -136,8 +136,9 @@ struct inet_connection_sock {
 	} icsk_mtup;
 	u32			  icsk_user_timeout;
 
-	u64			  icsk_ca_priv[104 / sizeof(u64)];
-#define ICSK_CA_PRIV_SIZE      (13 * sizeof(u64))
+/* XXX inflated by temporary internal debugging info */
+#define ICSK_CA_PRIV_SIZE      (216)
+	u64			  icsk_ca_priv[ICSK_CA_PRIV_SIZE / sizeof(u64)];
 };
 
 #define ICSK_TIME_RETRANS	1	/* Retransmit timer */
@@ -165,7 +166,8 @@ enum inet_csk_ack_state_t {
 	ICSK_ACK_SCHED	= 1,
 	ICSK_ACK_TIMER  = 2,
 	ICSK_ACK_PUSHED = 4,
-	ICSK_ACK_PUSHED2 = 8
+	ICSK_ACK_PUSHED2 = 8,
+	ICSK_ACK_NOW = 16	/* Send the next ACK immediately (once) */
 };
 
 void inet_csk_init_xmit_timers(struct sock *sk,
@@ -173,6 +175,7 @@ void inet_csk_init_xmit_timers(struct sock *sk,
 			       void (*delack_handler)(unsigned long),
 			       void (*keepalive_handler)(unsigned long));
 void inet_csk_clear_xmit_timers(struct sock *sk);
+void inet_csk_clear_xmit_timers_sync(struct sock *sk);
 
 static inline void inet_csk_schedule_ack(struct sock *sk)
 {
@@ -293,7 +296,7 @@ static inline int inet_csk_reqsk_queue_len(const struct sock *sk)
 
 static inline int inet_csk_reqsk_queue_is_full(const struct sock *sk)
 {
-	return inet_csk_reqsk_queue_len(sk) >= sk->sk_max_ack_backlog;
+	return inet_csk_reqsk_queue_len(sk) > READ_ONCE(sk->sk_max_ack_backlog);
 }
 
 void inet_csk_reqsk_queue_drop(struct sock *sk, struct request_sock *req);

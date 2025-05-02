@@ -189,7 +189,6 @@ static unsigned int sfq_classify(struct sk_buff *skb, struct Qdisc *sch,
 		case TC_ACT_QUEUED:
 		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
-			/* fall through */
 		case TC_ACT_SHOT:
 			return 0;
 		}
@@ -352,7 +351,7 @@ sfq_enqueue(struct sk_buff *skb, struct Qdisc *sch, struct sk_buff **to_free)
 	unsigned int hash, dropped;
 	sfq_index x, qlen;
 	struct sfq_slot *slot;
-	int uninitialized_var(ret);
+	int ret;
 	struct sk_buff *head;
 	int delta;
 
@@ -740,7 +739,7 @@ static int sfq_init(struct Qdisc *sch, struct nlattr *opt)
 	setup_deferrable_timer(&q->perturb_timer, sfq_perturbation,
 			       (unsigned long)sch);
 
-	err = tcf_block_get(&q->block, &q->filter_list, sch);
+	err = tcf_block_get(&q->block, &q->filter_list);
 	if (err)
 		return err;
 

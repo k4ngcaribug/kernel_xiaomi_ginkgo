@@ -65,7 +65,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x0>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1024>;
+			capacity-dmips-mhz = <635>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
 			next-level-cache = <&L2_0>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -94,7 +94,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x1>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1024>;
+			capacity-dmips-mhz = <635>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
 			next-level-cache = <&L2_0>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -120,7 +120,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x2>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1024>;
+			capacity-dmips-mhz = <635>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
 			next-level-cache = <&L2_0>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -146,7 +146,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x3>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1024>;
+			capacity-dmips-mhz = <635>;
 			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
 			next-level-cache = <&L2_0>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -172,7 +172,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x100>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1638>;
+			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
 			next-level-cache = <&L2_1>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -202,7 +202,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x101>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1638>;
+			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
 			next-level-cache = <&L2_1>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -228,7 +228,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x102>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1638>;
+			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
 			next-level-cache = <&L2_1>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -254,7 +254,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x103>;
 			enable-method = "psci";
-			capacity-dmips-mhz = <1638>;
+			capacity-dmips-mhz = <1024>;
 			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
 			next-level-cache = <&L2_1>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -319,10 +319,10 @@
 
 		CPU_COST_0: core-cost0 {
 			busy-cost-data = <
-				864000	68
-				1017600	79
-				1305600 114
-				1612800	171
+				864000	 68
+				1017600	 79
+				1305600	114
+				1420800	132
 				1804800	223
 			>;
 			idle-cost-data = <
@@ -333,9 +333,9 @@
 		CPU_COST_1: core-cost1 {
 			busy-cost-data = <
 				902400	154
+				1056000	185
 				1401600	289
-				1536000 344
-				1804800 469
+				1536000	344
 				2016000	596
 			>;
 			idle-cost-data = <
@@ -345,10 +345,10 @@
 
 		CLUSTER_COST_0: cluster-cost0 {
 			busy-cost-data = <
-				864000	9
+				864000	 9
 				1017600	12
 				1305600	18
-				1612800	27
+				1420800	21
 				1804800	36
 			>;
 			idle-cost-data = <
@@ -358,10 +358,10 @@
 
 		CLUSTER_COST_1: cluster-cost1 {
 			busy-cost-data = <
-				902400	52
-				1401600	88
+				902400	 52
+				1056000	 68
+				1401600	 88
 				1536000	100
-				1804800	108
 				2016000	120
 			>;
 			idle-cost-data = <
@@ -376,7 +376,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=1 rcu_nocbs=0-7 nosoftlockup mce=ignore_ce noirqdebug quiet";
+		bootargs = "rcu_nocbs=all noirqdebug nodebugmon quiet";
 	};
 
 	soc: soc { };
@@ -865,14 +865,14 @@
 			<864000>,
 			<1017600>,
 			<1305600>,
-			<1612800>,
+			<1420800>,
 			<1804800>;
 
 		qcom,cpufreq-table-4 =
 			<902400>,
+			<1056000>,
 			<1401600>,
 			<1536000>,
-			<1804800>,
 			<2016000>;
 	};
 
@@ -1019,7 +1019,7 @@
 
 		/* PM QoS */
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-cpu-group-latency-us = <43 43>;
+		qcom,pm-qos-cpu-group-latency-us = <26 26>;
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";
@@ -1203,7 +1203,6 @@
 		qcom,bark-time = <11000>;
 		qcom,pet-time = <9360>;
 		qcom,ipi-ping;
-		qcom,wakeup-enable;
 		qcom,scandump-sizes = <0x40000>;
 	};
 
@@ -1496,7 +1495,6 @@
 		qcom,adsp-remoteheap-vmid = <22 37>;
 		qcom,fastrpc-adsp-audio-pdr;
 		qcom,fastrpc-adsp-sensors-pdr;
-		qcom,qos-cores = <0 1 2 3>;
 
 		qcom,msm_fastrpc_compute_cb1 {
 			compatible = "qcom,msm-fastrpc-compute-cb";
@@ -1672,8 +1670,7 @@
 
 				msm_cdsp_rm: qcom,msm_cdsp_rm {
 					compatible = "qcom,msm-cdsp-rm";
-					qcom,qos-cores = <0 1 2 3>;
-					qcom,qos-latency-us = <43>;
+					qcom,qos-latency-us = <67>;
 					qcom,qos-maxhold-ms = <20>;
 					#cooling-cells = <2>;
 				};
@@ -2198,10 +2195,10 @@
 
 		/* PM QoS */
 		qcom,pm-qos-irq-type = "affine_irq";
-		qcom,pm-qos-irq-latency = <43 43>;
+		qcom,pm-qos-irq-latency = <40 40>;
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-cmdq-latency-us = <43 43>, <43 43>;
-		qcom,pm-qos-legacy-latency-us = <43 43>, <43 43>;
+		qcom,pm-qos-cmdq-latency-us = <40 40>, <40 40>;
+		qcom,pm-qos-legacy-latency-us = <40 40>, <40 40>;
 
 		qcom,scaling-lower-bus-speed-mode = "DDR52";
 
@@ -2270,9 +2267,9 @@
 
 		/* PM QoS */
 		qcom,pm-qos-irq-type = "affine_irq";
-		qcom,pm-qos-irq-latency = <43 43>;
-		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-legacy-latency-us = <43 43>, <43 43>;
+		qcom,pm-qos-irq-latency = <40 40>;
+		qcom,pm-qos-cpu-groups = <0x7f 0x80>;
+		qcom,pm-qos-legacy-latency-us = <40 40>, <40 40>;
 
 		clocks = <&clock_gcc GCC_SDCC2_AHB_CLK>,
 			<&clock_gcc GCC_SDCC2_APPS_CLK>;
@@ -3087,4 +3084,12 @@
 &L7P {
 	regulator-min-microvolt = <3000000>;
 	regulator-max-microvolt = <3000000>;
+};
+
+&pm8008_8 {
+	status = "disabled";
+};
+
+&pm8008_9 {
+	status = "disabled";
 };

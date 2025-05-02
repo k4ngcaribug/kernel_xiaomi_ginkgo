@@ -392,8 +392,9 @@ static int pasemi_mac_setup_rx_resources(const struct net_device *dev)
 	spin_lock_init(&ring->lock);
 
 	ring->size = RX_RING_SIZE;
-	ring->ring_info = kzalloc(sizeof(struct pasemi_mac_buffer) *
-				  RX_RING_SIZE, GFP_KERNEL);
+	ring->ring_info = kcalloc(RX_RING_SIZE,
+				  sizeof(struct pasemi_mac_buffer),
+				  GFP_KERNEL);
 
 	if (!ring->ring_info)
 		goto out_ring_info;
@@ -475,8 +476,9 @@ pasemi_mac_setup_tx_resources(const struct net_device *dev)
 	spin_lock_init(&ring->lock);
 
 	ring->size = TX_RING_SIZE;
-	ring->ring_info = kzalloc(sizeof(struct pasemi_mac_buffer) *
-				  TX_RING_SIZE, GFP_KERNEL);
+	ring->ring_info = kcalloc(TX_RING_SIZE,
+				  sizeof(struct pasemi_mac_buffer),
+				  GFP_KERNEL);
 	if (!ring->ring_info)
 		goto out_ring_info;
 
@@ -1436,7 +1438,7 @@ static void pasemi_mac_queue_csdesc(const struct sk_buff *skb,
 	write_dma_reg(PAS_DMA_TXCHAN_INCR(txring->chan.chno), 2);
 }
 
-static int pasemi_mac_start_tx(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t pasemi_mac_start_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct pasemi_mac * const mac = netdev_priv(dev);
 	struct pasemi_mac_txring * const txring = tx_ring(mac);

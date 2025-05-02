@@ -183,7 +183,7 @@ config BRIDGE_NETFILTER
 	depends on BRIDGE
 	depends on NETFILTER && INET
 	depends on NETFILTER_ADVANCED
-	default m
+	default n
 	---help---
 	  Enabling this option will let arptables resp. iptables see bridged
 	  ARP resp. IP traffic. If you want a bridging firewall, you probably
@@ -196,7 +196,6 @@ config BRIDGE_NETFILTER
 source "net/netfilter/Kconfig"
 source "net/ipv4/netfilter/Kconfig"
 source "net/ipv6/netfilter/Kconfig"
-source "net/decnet/netfilter/Kconfig"
 source "net/bridge/netfilter/Kconfig"
 
 endif
@@ -211,7 +210,6 @@ source "net/802/Kconfig"
 source "net/bridge/Kconfig"
 source "net/dsa/Kconfig"
 source "net/8021q/Kconfig"
-source "net/decnet/Kconfig"
 source "net/llc/Kconfig"
 source "net/ipx/Kconfig"
 source "drivers/net/appletalk/Kconfig"

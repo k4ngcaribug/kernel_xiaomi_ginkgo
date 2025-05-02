@@ -23,10 +23,6 @@
 #include <linux/freezer.h>
 #include <linux/page_owner.h>
 #include <linux/psi.h>
-#include <linux/msm_drm_notify.h>
-#include <linux/moduleparam.h>
-#include <linux/time.h>
-#include <linux/workqueue.h>
 #include "internal.h"
 
 #ifdef CONFIG_COMPACTION
@@ -889,7 +885,7 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		VM_BUG_ON_PAGE(PageCompound(page), page);
 
 		/* Successfully isolated */
-		del_page_from_lru_list(page, lruvec, page_lru(page));
+		del_page_from_lru_list(page, lruvec);
 		inc_node_page_state(page,
 				NR_ISOLATED_ANON + page_is_file_cache(page));
 
@@ -1386,7 +1382,7 @@ static enum compact_result __compact_finished(struct zone *zone,
 		 * other migratetype buddy lists.
 		 */
 		if (find_suitable_fallback(area, order, migratetype,
-						true, &can_steal, cc->order) != -1) {
+						true, &can_steal) != -1) {
 
 			/* movable pages are OK in any pageblock */
 			if (migratetype == MIGRATE_MOVABLE)
@@ -1749,7 +1745,7 @@ static enum compact_result compact_zone_order(struct zone *zone, int order,
 	return ret;
 }
 
-int sysctl_extfrag_threshold = 750;
+int sysctl_extfrag_threshold = 500;
 
 /**
  * try_to_compact_pages - Direct compact to satisfy a high-order allocation
@@ -1765,16 +1761,11 @@ enum compact_result try_to_compact_pages(gfp_t gfp_mask, unsigned int order,
 		unsigned int alloc_flags, const struct alloc_context *ac,
 		enum compact_priority prio)
 {
-	int may_perform_io = gfp_mask & __GFP_IO;
 	struct zoneref *z;
 	struct zone *zone;
 	enum compact_result rc = COMPACT_SKIPPED;
 
-	/*
-	 * Check if the GFP flags allow compaction - GFP_NOIO is really
-	 * tricky context because the migration might require IO
-	 */
-	if (!may_perform_io)
+	if (!gfp_compaction_allowed(gfp_mask))
 		return COMPACT_SKIPPED;
 
 	trace_mm_compaction_try_to_compact_pages(order, gfp_mask, prio);
@@ -1829,53 +1820,6 @@ enum compact_result try_to_compact_pages(gfp_t gfp_mask, unsigned int order,
 	return rc;
 }
 
-static struct workqueue_struct *compaction_wq;
-static struct delayed_work compaction_work;
-static bool screen_on = true;
-static int compaction_timeout_ms = 900000;
-module_param_named(compaction_forced_timeout_ms, compaction_timeout_ms, int,
-			0644);
-static int compaction_soff_delay_ms = 3000;
-module_param_named(compaction_screen_off_delay_ms, compaction_soff_delay_ms, int,
-			0644);
-static unsigned long compaction_forced_timeout;
-
-
-static int msm_drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
-{
-	struct msm_drm_notifier *evdata = data;
-	int *blank;
-
-	if (event != MSM_DRM_EVENT_BLANK)
-		return 0;
-
-	if (evdata->id != MSM_DRM_PRIMARY_DISPLAY)
-		return 0;
-
-	if (evdata && evdata->data) {
-		blank = evdata->data;
-
-		switch (*blank) {
-		case MSM_DRM_BLANK_POWERDOWN:
-			screen_on = false;
-			if (time_after(jiffies, compaction_forced_timeout) && !delayed_work_busy(&compaction_work)) {
-				compaction_forced_timeout = jiffies + msecs_to_jiffies(compaction_timeout_ms);
-				queue_delayed_work(compaction_wq, &compaction_work,
-					msecs_to_jiffies(compaction_soff_delay_ms));
-			}
-		break;
-		case MSM_DRM_BLANK_UNBLANK:
-			screen_on = true;
-		break;
-		}
-	}
-
-	return 0;
-}
-
-static struct notifier_block compaction_notifier_block = {
-	.notifier_call = msm_drm_notifier_callback,
-};
 
 /* Compact all zones within a node */
 static void compact_node(int nid)
@@ -1919,28 +1863,6 @@ static void compact_nodes(void)
 		compact_node(nid);
 }
 
-void zram_compact(void);
-
-static void do_compaction(struct work_struct *work)
-{
-	/* Return early if the screen is on */
-	if (screen_on)
-		return;
-
-	pr_info("Scheduled memory compaction is starting\n");
-
-	/* Do full compaction */
-	compact_nodes();
-
-	/* Do ZRAM compaction */
-	zram_compact();
-
-	/* Force compaction timeout */
-	compaction_forced_timeout = jiffies + msecs_to_jiffies(compaction_timeout_ms);
-
-	pr_info("Scheduled memory compaction is completed\n");
-}
-
 /* The written value is actually unused, all memory is compacted */
 int sysctl_compact_memory;
 
@@ -1981,7 +1903,7 @@ static ssize_t sysfs_compact_node(struct device *dev,
 
 	return count;
 }
-static DEVICE_ATTR(compact, S_IWUSR, NULL, sysfs_compact_node);
+static DEVICE_ATTR(compact, 0200, NULL, sysfs_compact_node);
 
 int compaction_register_node(struct node *node)
 {
@@ -2225,20 +2147,5 @@ static int __init kcompactd_init(void)
 	return 0;
 }
 subsys_initcall(kcompactd_init)
-
-static int  __init scheduled_compaction_init(void)
-{
-	compaction_wq = create_freezable_workqueue("compaction_wq");
-
-	if (!compaction_wq)
-		return -EFAULT;
-
-	INIT_DELAYED_WORK(&compaction_work, do_compaction);
-
-	msm_drm_register_client(&compaction_notifier_block);
-
-	return 0;
-}
-late_initcall(scheduled_compaction_init);
 
 #endif /* CONFIG_COMPACTION */

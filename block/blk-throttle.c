@@ -26,7 +26,7 @@ static int throtl_quantum = 32;
 #define MAX_IDLE_TIME (5L * 1000 * 1000) /* 5 s */
 #define MIN_THROTL_BPS (320 * 1024)
 #define MIN_THROTL_IOPS (10)
-#define DFL_LATENCY_TARGET (1000L) /* 1ms */
+#define DFL_LATENCY_TARGET (-1L)
 #define DFL_IDLE_THRESHOLD (0)
 #define DFL_HD_BASELINE_LATENCY (4000L) /* 4ms */
 #define LATENCY_FILTERED_SSD (0)
@@ -1391,6 +1391,7 @@ static void tg_conf_updated(struct throtl_grp *tg, bool global)
 		   tg_bps_limit(tg, READ), tg_bps_limit(tg, WRITE),
 		   tg_iops_limit(tg, READ), tg_iops_limit(tg, WRITE));
 
+	rcu_read_lock();
 	/*
 	 * Update has_rules[] flags for the updated tg's subtree.  A tg is
 	 * considered to have rules if either the tg itself or any of its
@@ -1418,6 +1419,7 @@ static void tg_conf_updated(struct throtl_grp *tg, bool global)
 		this_tg->latency_target = max(this_tg->latency_target,
 				parent_tg->latency_target);
 	}
+	rcu_read_unlock();
 
 	/*
 	 * We're already holding queue_lock and know @tg is valid.  Let's

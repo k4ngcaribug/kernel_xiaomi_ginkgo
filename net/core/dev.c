@@ -2167,6 +2167,8 @@ int netif_set_xps_queue(struct net_device *dev, const struct cpumask *mask,
 	struct xps_map *map, *new_map;
 	bool active = false;
 
+	WARN_ON_ONCE(index >= dev->num_tx_queues);
+
 	if (dev->num_tc) {
 		num_tc = dev->num_tc;
 		tc = netdev_txq_to_tc(dev, index);
@@ -2527,8 +2529,10 @@ void __dev_kfree_skb_any(struct sk_buff *skb, enum skb_free_reason reason)
 {
 	if (in_irq() || irqs_disabled())
 		__dev_kfree_skb_irq(skb, reason);
+	else if (unlikely(reason == SKB_REASON_DROPPED))
+		kfree_skb(skb);
 	else
-		dev_kfree_skb(skb);
+		consume_skb(skb);
 }
 EXPORT_SYMBOL(__dev_kfree_skb_any);
 
@@ -2939,6 +2943,14 @@ static netdev_features_t gso_features_check(const struct sk_buff *skb,
 	if (gso_segs > dev->gso_max_segs)
 		return features & ~NETIF_F_GSO_MASK;
 
+	if (unlikely(skb->len >= READ_ONCE(dev->gso_max_size)))
+		return features & ~NETIF_F_GSO_MASK;
+
+	if (!skb_shinfo(skb)->gso_type) {
+		skb_warn_bad_offload(skb);
+		return features & ~NETIF_F_GSO_MASK;
+	}
+
 	/* Support for GSO partial features requires software
 	 * intervention before we can actually process the packets
 	 * so we need to strip support for any partial features now
@@ -3054,7 +3066,22 @@ int skb_csum_hwoffload_help(struct sk_buff *skb,
 		return !!(features & NETIF_F_SCTP_CRC) ? 0 :
 			skb_crc32c_csum_help(skb);
 
-	return !!(features & NETIF_F_CSUM_MASK) ? 0 : skb_checksum_help(skb);
+	if (features & NETIF_F_HW_CSUM)
+		return 0;
+
+	if (features & (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM)) {
+		if (vlan_get_protocol(skb) == htons(ETH_P_IPV6) &&
+		    skb_network_header_len(skb) != sizeof(struct ipv6hdr))
+			goto sw_checksum;
+		switch (skb->csum_offset) {
+		case offsetof(struct tcphdr, check):
+		case offsetof(struct udphdr, check):
+			return 0;
+		}
+	}
+
+sw_checksum:
+	return skb_checksum_help(skb);
 }
 EXPORT_SYMBOL(skb_csum_hwoffload_help);
 
@@ -3698,8 +3725,10 @@ static int get_rps_cpu(struct net_device *dev, struct sk_buff *skb,
 		u32 next_cpu;
 		u32 ident;
 
-		/* First check into global flow table if there is a match */
-		ident = sock_flow_table->ents[hash & sock_flow_table->mask];
+		/* First check into global flow table if there is a match.
+		 * This READ_ONCE() pairs with WRITE_ONCE() from rps_record_sock_flow().
+		 */
+		ident = READ_ONCE(sock_flow_table->ents[hash & sock_flow_table->mask]);
 		if ((ident ^ hash) & ~rps_cpu_mask)
 			goto try_rps;
 
@@ -4554,7 +4583,7 @@ static int __netif_receive_skb(struct sk_buff *skb)
 	return ret;
 }
 
-static int generic_xdp_install(struct net_device *dev, struct netdev_xdp *xdp)
+static int generic_xdp_install(struct net_device *dev, struct netdev_bpf *xdp)
 {
 	struct bpf_prog *old = rtnl_dereference(dev->xdp_prog);
 	struct bpf_prog *new = xdp->prog;
@@ -5233,7 +5262,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
 		net_rps_action_and_irq_enable(sd);
 	}
 
-	napi->weight = dev_rx_weight;
+	napi->weight = READ_ONCE(dev_rx_weight);
 	while (again) {
 		struct sk_buff *skb;
 
@@ -5712,8 +5741,8 @@ static __latent_entropy void net_rx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
 	unsigned long time_limit = jiffies +
-		usecs_to_jiffies(netdev_budget_usecs);
-	int budget = netdev_budget;
+		usecs_to_jiffies(READ_ONCE(netdev_budget_usecs));
+	int budget = READ_ONCE(netdev_budget);
 	LIST_HEAD(list);
 	LIST_HEAD(repoll);
 
@@ -7113,26 +7142,26 @@ int dev_change_proto_down(struct net_device *dev, bool proto_down)
 }
 EXPORT_SYMBOL(dev_change_proto_down);
 
-u8 __dev_xdp_attached(struct net_device *dev, xdp_op_t xdp_op, u32 *prog_id)
+u8 __dev_xdp_attached(struct net_device *dev, bpf_op_t bpf_op, u32 *prog_id)
 {
-	struct netdev_xdp xdp;
+	struct netdev_bpf xdp;
 
 	memset(&xdp, 0, sizeof(xdp));
 	xdp.command = XDP_QUERY_PROG;
 
 	/* Query must always succeed. */
-	WARN_ON(xdp_op(dev, &xdp) < 0);
+	WARN_ON(bpf_op(dev, &xdp) < 0);
 	if (prog_id)
 		*prog_id = xdp.prog_id;
 
 	return xdp.prog_attached;
 }
 
-static int dev_xdp_install(struct net_device *dev, xdp_op_t xdp_op,
+static int dev_xdp_install(struct net_device *dev, bpf_op_t bpf_op,
 			   struct netlink_ext_ack *extack, u32 flags,
 			   struct bpf_prog *prog)
 {
-	struct netdev_xdp xdp;
+	struct netdev_bpf xdp;
 
 	memset(&xdp, 0, sizeof(xdp));
 	if (flags & XDP_FLAGS_HW_MODE)
@@ -7143,7 +7172,7 @@ static int dev_xdp_install(struct net_device *dev, xdp_op_t xdp_op,
 	xdp.flags = flags;
 	xdp.prog = prog;
 
-	return xdp_op(dev, &xdp);
+	return bpf_op(dev, &xdp);
 }
 
 /**
@@ -7160,24 +7189,24 @@ int dev_change_xdp_fd(struct net_device *dev, struct netlink_ext_ack *extack,
 {
 	const struct net_device_ops *ops = dev->netdev_ops;
 	struct bpf_prog *prog = NULL;
-	xdp_op_t xdp_op, xdp_chk;
+	bpf_op_t bpf_op, bpf_chk;
 	int err;
 
 	ASSERT_RTNL();
 
-	xdp_op = xdp_chk = ops->ndo_xdp;
-	if (!xdp_op && (flags & (XDP_FLAGS_DRV_MODE | XDP_FLAGS_HW_MODE)))
+	bpf_op = bpf_chk = ops->ndo_bpf;
+	if (!bpf_op && (flags & (XDP_FLAGS_DRV_MODE | XDP_FLAGS_HW_MODE)))
 		return -EOPNOTSUPP;
-	if (!xdp_op || (flags & XDP_FLAGS_SKB_MODE))
-		xdp_op = generic_xdp_install;
-	if (xdp_op == xdp_chk)
-		xdp_chk = generic_xdp_install;
+	if (!bpf_op || (flags & XDP_FLAGS_SKB_MODE))
+		bpf_op = generic_xdp_install;
+	if (bpf_op == bpf_chk)
+		bpf_chk = generic_xdp_install;
 
 	if (fd >= 0) {
-		if (xdp_chk && __dev_xdp_attached(dev, xdp_chk, NULL))
+		if (bpf_chk && __dev_xdp_attached(dev, bpf_chk, NULL))
 			return -EEXIST;
 		if ((flags & XDP_FLAGS_UPDATE_IF_NOEXIST) &&
-		    __dev_xdp_attached(dev, xdp_op, NULL))
+		    __dev_xdp_attached(dev, bpf_op, NULL))
 			return -EBUSY;
 
 		prog = bpf_prog_get_type(fd, BPF_PROG_TYPE_XDP);
@@ -7185,7 +7214,7 @@ int dev_change_xdp_fd(struct net_device *dev, struct netlink_ext_ack *extack,
 			return PTR_ERR(prog);
 	}
 
-	err = dev_xdp_install(dev, xdp_op, extack, flags, prog);
+	err = dev_xdp_install(dev, bpf_op, extack, flags, prog);
 	if (err < 0 && prog)
 		bpf_prog_put(prog);
 
@@ -8029,7 +8058,6 @@ void netdev_run_todo(void)
 		WARN_ON(!list_empty(&dev->ptype_specific));
 		WARN_ON(rcu_access_pointer(dev->ip_ptr));
 		WARN_ON(rcu_access_pointer(dev->ip6_ptr));
-		WARN_ON(dev->dn_ptr);
 
 		if (dev->priv_destructor)
 			dev->priv_destructor(dev);
@@ -8055,24 +8083,16 @@ void netdev_run_todo(void)
 void netdev_stats_to_stats64(struct rtnl_link_stats64 *stats64,
 			     const struct net_device_stats *netdev_stats)
 {
-#if BITS_PER_LONG == 64
-	BUILD_BUG_ON(sizeof(*stats64) < sizeof(*netdev_stats));
-	memcpy(stats64, netdev_stats, sizeof(*netdev_stats));
-	/* zero out counters that only exist in rtnl_link_stats64 */
-	memset((char *)stats64 + sizeof(*netdev_stats), 0,
-	       sizeof(*stats64) - sizeof(*netdev_stats));
-#else
-	size_t i, n = sizeof(*netdev_stats) / sizeof(unsigned long);
-	const unsigned long *src = (const unsigned long *)netdev_stats;
+	size_t i, n = sizeof(*netdev_stats) / sizeof(atomic_long_t);
+	const atomic_long_t *src = (atomic_long_t *)netdev_stats;
 	u64 *dst = (u64 *)stats64;
 
 	BUILD_BUG_ON(n > sizeof(*stats64) / sizeof(u64));
 	for (i = 0; i < n; i++)
-		dst[i] = src[i];
+		dst[i] = atomic_long_read(&src[i]);
 	/* zero out counters that only exist in rtnl_link_stats64 */
 	memset((char *)stats64 + n * sizeof(u64), 0,
 	       sizeof(*stats64) - n * sizeof(u64));
-#endif
 }
 EXPORT_SYMBOL(netdev_stats_to_stats64);
 
@@ -8611,7 +8631,7 @@ static struct hlist_head * __net_init netdev_create_hash(void)
 	int i;
 	struct hlist_head *hash;
 
-	hash = kmalloc(sizeof(*hash) * NETDEV_HASHENTRIES, GFP_KERNEL);
+	hash = kmalloc_array(NETDEV_HASHENTRIES, sizeof(*hash), GFP_KERNEL);
 	if (hash != NULL)
 		for (i = 0; i < NETDEV_HASHENTRIES; i++)
 			INIT_HLIST_HEAD(&hash[i]);

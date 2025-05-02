@@ -35,7 +35,7 @@
 
 #include "exofs.h"
 
-#define EXOFS_DBGMSG2(M...) do {} while (0)
+#define EXOFS_DBGMSG2(M...) ((void)0)
 
 unsigned exofs_max_io_pages(struct ore_layout *layout,
 			    unsigned expected_pages)
@@ -110,8 +110,8 @@ static int pcol_try_alloc(struct page_collect *pcol)
 	pages =  exofs_max_io_pages(&pcol->sbi->layout, pcol->expected_pages);
 
 	for (; pages; pages >>= 1) {
-		pcol->pages = kmalloc(pages * sizeof(struct page *),
-				      GFP_KERNEL);
+		pcol->pages = kmalloc_array(pages, sizeof(struct page *),
+					    GFP_KERNEL);
 		if (likely(pcol->pages)) {
 			pcol->alloc_pages = pages;
 			return 0;

@@ -521,7 +521,12 @@ static void section_mac(struct dm_integrity_c *ic, unsigned section, __u8 result
 		}
 		memset(result + size, 0, JOURNAL_MAC_SIZE - size);
 	} else {
-		__u8 digest[size];
+		__u8 digest[HASH_MAX_DIGESTSIZE];
+
+		if (WARN_ON(size > sizeof(digest))) {
+			dm_integrity_io_error(ic, "digest_size", -EINVAL);
+			goto err;
+		}
 		r = crypto_shash_final(desc, digest);
 		if (unlikely(r)) {
 			dm_integrity_io_error(ic, "crypto_shash_final", r);
@@ -1244,7 +1249,7 @@ static void integrity_metadata(struct work_struct *w)
 		struct bio *bio = dm_bio_from_per_bio_data(dio, sizeof(struct dm_integrity_io));
 		char *checksums;
 		unsigned extra_space = unlikely(digest_size > ic->tag_size) ? digest_size - ic->tag_size : 0;
-		char checksums_onstack[ic->tag_size + extra_space];
+		char checksums_onstack[HASH_MAX_DIGESTSIZE];
 		unsigned sectors_to_process = dio->range.n_sectors;
 		sector_t sector = dio->range.logical_sector;
 
@@ -1253,15 +1258,22 @@ static void integrity_metadata(struct work_struct *w)
 
 		checksums = kmalloc((PAGE_SIZE >> SECTOR_SHIFT >> ic->sb->log2_sectors_per_block) * ic->tag_size + extra_space,
 				    GFP_NOIO | __GFP_NORETRY | __GFP_NOWARN);
-		if (!checksums)
+		if (!checksums) {
 			checksums = checksums_onstack;
+			if (WARN_ON(extra_space &&
+				    digest_size > sizeof(checksums_onstack))) {
+				r = -EINVAL;
+				goto error;
+			}
+		}
 
 		__bio_for_each_segment(bv, bio, iter, dio->orig_bi_iter) {
+			struct bio_vec bv_copy = bv;
 			unsigned pos;
 			char *mem, *checksums_ptr;
 
 again:
-			mem = (char *)kmap_atomic(bv.bv_page) + bv.bv_offset;
+			mem = (char *)kmap_atomic(bv_copy.bv_page) + bv_copy.bv_offset;
 			pos = 0;
 			checksums_ptr = checksums;
 			do {
@@ -1270,7 +1282,7 @@ again:
 				sectors_to_process -= ic->sectors_per_block;
 				pos += ic->sectors_per_block << SECTOR_SHIFT;
 				sector += ic->sectors_per_block;
-			} while (pos < bv.bv_len && sectors_to_process && checksums != checksums_onstack);
+			} while (pos < bv_copy.bv_len && sectors_to_process && checksums != checksums_onstack);
 			kunmap_atomic(mem);
 
 			r = dm_integrity_rw_tag(ic, checksums, &dio->metadata_block, &dio->metadata_offset,
@@ -1290,9 +1302,9 @@ again:
 			if (!sectors_to_process)
 				break;
 
-			if (unlikely(pos < bv.bv_len)) {
-				bv.bv_offset += pos;
-				bv.bv_len -= pos;
+			if (unlikely(pos < bv_copy.bv_len)) {
+				bv_copy.bv_offset += pos;
+				bv_copy.bv_len -= pos;
 				goto again;
 			}
 		}
@@ -1466,7 +1478,7 @@ retry_kmap:
 				} while (++s < ic->sectors_per_block);
 #ifdef INTERNAL_VERIFY
 				if (ic->internal_hash) {
-					char checksums_onstack[max(crypto_shash_digestsize(ic->internal_hash), ic->tag_size)];
+					char checksums_onstack[max(HASH_MAX_DIGESTSIZE, MAX_TAG_SIZE)];
 
 					integrity_sector_checksum(ic, logical_sector, mem + bv.bv_offset, checksums_onstack);
 					if (unlikely(memcmp(checksums_onstack, journal_entry_tag(ic, je), ic->tag_size))) {
@@ -1516,7 +1528,7 @@ retry_kmap:
 				if (ic->internal_hash) {
 					unsigned digest_size = crypto_shash_digestsize(ic->internal_hash);
 					if (unlikely(digest_size > ic->tag_size)) {
-						char checksums_onstack[digest_size];
+						char checksums_onstack[HASH_MAX_DIGESTSIZE];
 						integrity_sector_checksum(ic, logical_sector, (char *)js, checksums_onstack);
 						memcpy(journal_entry_tag(ic, je), checksums_onstack, ic->tag_size);
 					} else
@@ -1937,7 +1949,7 @@ static void do_journal_write(struct dm_integrity_c *ic, unsigned write_start,
 				    unlikely(from_replay) &&
 #endif
 				    ic->internal_hash) {
-					char test_tag[max(crypto_shash_digestsize(ic->internal_hash), ic->tag_size)];
+					char test_tag[max_t(size_t, HASH_MAX_DIGESTSIZE, MAX_TAG_SIZE)];
 
 					integrity_sector_checksum(ic, sec + ((l - j) << ic->sb->log2_sectors_per_block),
 								  (char *)access_journal_data(ic, i, l), test_tag);
@@ -2448,7 +2460,9 @@ static struct scatterlist **dm_integrity_alloc_journal_scatterlist(struct dm_int
 	struct scatterlist **sl;
 	unsigned i;
 
-	sl = kvmalloc(ic->journal_sections * sizeof(struct scatterlist *), GFP_KERNEL | __GFP_ZERO);
+	sl = kvmalloc_array(ic->journal_sections,
+			    sizeof(struct scatterlist *),
+			    GFP_KERNEL | __GFP_ZERO);
 	if (!sl)
 		return NULL;
 
@@ -2464,7 +2478,8 @@ static struct scatterlist **dm_integrity_alloc_journal_scatterlist(struct dm_int
 
 		n_pages = (end_index - start_index + 1);
 
-		s = kvmalloc(n_pages * sizeof(struct scatterlist), GFP_KERNEL);
+		s = kvmalloc_array(n_pages, sizeof(struct scatterlist),
+				   GFP_KERNEL);
 		if (!s) {
 			dm_integrity_free_journal_scatterlist(ic, sl);
 			return NULL;
@@ -2643,7 +2658,9 @@ static int create_journal(struct dm_integrity_c *ic, char **error)
 				goto bad;
 			}
 
-			sg = kvmalloc((ic->journal_pages + 1) * sizeof(struct scatterlist), GFP_KERNEL);
+			sg = kvmalloc_array(ic->journal_pages + 1,
+					    sizeof(struct scatterlist),
+					    GFP_KERNEL);
 			if (!sg) {
 				*error = "Unable to allocate sg list";
 				r = -ENOMEM;
@@ -2709,7 +2726,9 @@ static int create_journal(struct dm_integrity_c *ic, char **error)
 				r = -ENOMEM;
 				goto bad;
 			}
-			ic->sk_requests = kvmalloc(ic->journal_sections * sizeof(struct skcipher_request *), GFP_KERNEL | __GFP_ZERO);
+			ic->sk_requests = kvmalloc_array(ic->journal_sections,
+							 sizeof(struct skcipher_request *),
+							 GFP_KERNEL | __GFP_ZERO);
 			if (!ic->sk_requests) {
 				*error = "Unable to allocate sk requests";
 				r = -ENOMEM;
@@ -2743,7 +2762,8 @@ static int create_journal(struct dm_integrity_c *ic, char **error)
 					r = -ENOMEM;
 					goto bad;
 				}
-				section_req->iv = kmalloc(ivsize * 2, GFP_KERNEL);
+				section_req->iv = kmalloc_array(ivsize, 2,
+								GFP_KERNEL);
 				if (!section_req->iv) {
 					skcipher_request_free(section_req);
 					*error = "Unable to allocate iv";
@@ -3156,8 +3176,6 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	}
 
 	if (should_write_sb) {
-		int r;
-
 		init_journal(ic, 0, ic->journal_sections, 0);
 		r = dm_integrity_failed(ic);
 		if (unlikely(r)) {
@@ -3276,11 +3294,13 @@ int __init dm_integrity_init(void)
 	}
 
 	r = dm_register_target(&integrity_target);
-
-	if (r < 0)
+	if (r < 0) {
 		DMERR("register failed %d", r);
+		kmem_cache_destroy(journal_io_cache);
+		return r;
+	}
 
-	return r;
+	return 0;
 }
 
 void dm_integrity_exit(void)

@@ -93,7 +93,7 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 
 		switch (token) {
 		case Opt_debug:
-			*debug = 1;
+			*debug = 0;
 			break;
 		case Opt_fsuid:
 			if (match_int(&args[0], &option))
@@ -180,7 +180,7 @@ int parse_options_remount(struct super_block *sb, char *options, int silent,
 
 		switch (token) {
 		case Opt_debug:
-			debug = 1;
+			debug = 0;
 			break;
 		case Opt_gid:
 			if (match_int(&args[0], &option))
@@ -469,17 +469,27 @@ static struct file_system_type sdcardfs_fs_type = {
 };
 MODULE_ALIAS_FS(SDCARDFS_NAME);
 
+extern bool plain_partitions;
+extern bool sdcardfs_enabled;
+extern bool is_dynamic_partitions(void);
+
 static int __init init_sdcardfs_fs(void)
 {
 	int err;
 
-	pr_info("Registering sdcardfs " SDCARDFS_VERSION "\n");
-
-	kmem_file_info_pool = KMEM_CACHE(sdcardfs_file_info, SLAB_HWCACHE_ALIGN);
-	if (!kmem_file_info_pool) {
-		err = -ENOMEM;
-		goto err;
+    if (sdcardfs_enabled) {
+		if (!is_dynamic_partitions()) {
+			pr_info("SDCardFS enabled on ROM without dynamic partitions\n");
+		} else {
+			pr_info("SDCardFS enabled on ROM with dynamic partitions, skipping init\n");
+			return 0;
+		}
+	} else {
+		pr_info("SDCardFS not enabled on ROM, skipping init\n");
+		return 0;
 	}
+
+	pr_info("Registering sdcardfs " SDCARDFS_VERSION "\n");
 
 	err = sdcardfs_init_inode_cache();
 	if (err)
@@ -497,7 +507,6 @@ out:
 		sdcardfs_destroy_dentry_cache();
 		packagelist_exit();
 	}
-err:
 	return err;
 }
 
@@ -507,7 +516,6 @@ static void __exit exit_sdcardfs_fs(void)
 	sdcardfs_destroy_dentry_cache();
 	packagelist_exit();
 	unregister_filesystem(&sdcardfs_fs_type);
-	kmem_cache_destroy(kmem_file_info_pool);
 	pr_info("Completed sdcardfs module unload\n");
 }
 

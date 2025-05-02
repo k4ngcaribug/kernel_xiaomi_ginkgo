@@ -141,8 +141,9 @@ static int read_block_dev(struct bio_read *payload, struct block_device *bdev,
 	bio->bi_iter.bi_sector = offset;
 	bio_set_op_attrs(bio, REQ_OP_READ, 0);
 
-	payload->page_io = kzalloc(sizeof(struct page *) *
-		payload->number_of_pages, GFP_KERNEL);
+	payload->page_io = kcalloc(payload->number_of_pages,
+				   sizeof(struct page *),
+				   GFP_KERNEL);
 	if (!payload->page_io) {
 		DMERR("page_io array alloc failed");
 		err = -ENOMEM;
@@ -671,7 +672,7 @@ static int create_linear_device(struct dm_target *ti, dev_t dev,
 static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
 	dev_t uninitialized_var(dev);
-	struct android_metadata *metadata = NULL;
+	struct android_metadata *metadata;
 	int err = 0, i, mode;
 	char *key_id = NULL, *table_ptr, dummy, *target_device;
 	char *verity_table_args[VERITY_TABLE_ARGS + 2 + VERITY_TABLE_OPT_FEC_ARGS];
@@ -733,7 +734,7 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		}
 		DMERR("Error while extracting metadata");
 		handle_error();
-		goto free_metadata;
+		return err;
 	}
 
 	if (verity_enabled) {
@@ -864,11 +865,10 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	}
 
 free_metadata:
-	if (metadata) {
-		kfree(metadata->header);
-		kfree(metadata->verity_table);
-	}
+	kfree(metadata->header);
+	kfree(metadata->verity_table);
 	kfree(metadata);
+
 	return err;
 }
 

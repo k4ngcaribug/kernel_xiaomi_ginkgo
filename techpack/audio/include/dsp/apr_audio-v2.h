@@ -2023,27 +2023,26 @@ struct afe_port_cmd_set_param_v3 {
 
 #ifdef CONFIG_SND_SOC_MAX98937
 struct afe_port_param_data_v2 {
+	/* ID of the module to be configured.
+ 	 * Supported values: Valid module ID
+ 	 */
 	u32 module_id;
-/* ID of the module to be configured.
- * Supported values: Valid module ID
- */
 
-u32 param_id;
-/* ID of the parameter corresponding to the supported parameters
- * for the module ID.
- * Supported values: Valid parameter ID
- */
+	/* ID of the parameter corresponding to the supported parameters
+ 	 * for the module ID.
+ 	 * Supported values: Valid parameter ID
+ 	 */
+	u32 param_id;
 
-u16 param_size;
-/* Actual size of the data for the
- * module_id/param_id pair. The size is a
- * multiple of four bytes.
- * Supported values: > 0
- */
+	/* Actual size of the data for the
+ 	 * module_id/param_id pair. The size is a
+ 	 * multiple of four bytes.
+ 	 * Supported values: > 0
+ 	 */
+	u16 param_size;
 
-u16 reserved;
-/* This field must be set to zero.
- */
+	/* This field must be set to zero. */
+	u16 reserved;
 } __packed;
 #endif
 
@@ -10758,9 +10757,10 @@ struct afe_spkr_prot_calib_get_resp {
 struct afe_dsm_param_array {
     uint32_t    data[110];
 } __packed;
+
 struct afe_dsm_get_param {
 	struct param_hdr_v3 pdata;
-    struct afe_dsm_param_array param;
+	struct afe_dsm_param_array param;
 } __packed;
 
 struct afe_dsm_get_resp {
@@ -10768,7 +10768,6 @@ struct afe_dsm_get_resp {
 	struct param_hdr_v3 pdata;
 	struct afe_dsm_param_array param;
 } __packed;
-
 #endif
 
 /* SRS TRUMEDIA start */

@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -63,11 +62,10 @@
 #define MSM_VERSION_MINOR	2
 #define MSM_VERSION_PATCHLEVEL	0
 
+static DEFINE_MUTEX(msm_release_lock);
+
 atomic_t resume_pending;
 wait_queue_head_t resume_wait_q;
-static struct kmem_cache *kmem_vblank_work_pool;
-
-static DEFINE_MUTEX(msm_release_lock);
 
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -262,7 +260,7 @@ static void vblank_ctrl_worker(struct kthread_work *work)
 	else
 		kms->funcs->disable_vblank(kms, priv->crtcs[cur_work->crtc_id]);
 
-	kmem_cache_free(kmem_vblank_work_pool, cur_work);
+	kfree(cur_work);
 }
 
 static int vblank_ctrl_queue_work(struct msm_drm_private *priv,
@@ -273,7 +271,7 @@ static int vblank_ctrl_queue_work(struct msm_drm_private *priv,
 	if (!priv || crtc_id >= priv->num_crtcs)
 		return -EINVAL;
 
-	cur_work = kmem_cache_zalloc(kmem_vblank_work_pool, GFP_ATOMIC);
+	cur_work = kzalloc(sizeof(*cur_work), GFP_ATOMIC);
 	if (!cur_work)
 		return -ENOMEM;
 
@@ -435,7 +433,7 @@ static int msm_init_vram(struct drm_device *dev)
 		of_node_put(node);
 		if (ret)
 			return ret;
-		size = r.end - r.start;
+		size = r.end - r.start + 1;
 		DRM_INFO("using VRAM carveout: %lx@%pa\n", size, &r.start);
 
 		/* if we have no IOMMU, then we need to use carveout allocator.
@@ -791,21 +789,11 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 		priv->disp_thread[i].crtc_id = priv->crtcs[i]->base.id;
 		kthread_init_worker(&priv->disp_thread[i].worker);
 		priv->disp_thread[i].dev = ddev;
-		/* Only pin actual display thread to big cluster */
-		if (i == 0) {
-			priv->disp_thread[i].thread =
-				kthread_run_perf_critical(cpu_perf_mask, kthread_worker_fn,
-					&priv->disp_thread[i].worker,
-					"crtc_commit:%d", priv->disp_thread[i].crtc_id);
-			pr_info("%i to big cluster", priv->disp_thread[i].crtc_id);
-		} else {
-			priv->disp_thread[i].thread =
-				kthread_run(kthread_worker_fn,
-					&priv->disp_thread[i].worker,
-					"crtc_commit:%d", priv->disp_thread[i].crtc_id);
-			pr_info("%i to little cluster", priv->disp_thread[i].crtc_id);
-		}
-
+		priv->disp_thread[i].thread =
+			kthread_run_perf_critical(cpu_perf_mask,
+				kthread_worker_fn,
+				&priv->disp_thread[i].worker,
+				"crtc_commit:%d", priv->disp_thread[i].crtc_id);
 		ret = sched_setscheduler(priv->disp_thread[i].thread,
 							SCHED_FIFO, &param);
 		if (ret)
@@ -821,20 +809,11 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 		priv->event_thread[i].crtc_id = priv->crtcs[i]->base.id;
 		kthread_init_worker(&priv->event_thread[i].worker);
 		priv->event_thread[i].dev = ddev;
-		/* Only pin first event thread to big cluster */
-		if (i == 0) {
-			priv->event_thread[i].thread =
-				kthread_run_perf_critical(cpu_perf_mask, kthread_worker_fn,
-					&priv->event_thread[i].worker,
-					"crtc_event:%d", priv->event_thread[i].crtc_id);
-			pr_info("%i to big cluster", priv->event_thread[i].crtc_id);
-		} else {
-			priv->event_thread[i].thread =
-				kthread_run(kthread_worker_fn,
-					&priv->event_thread[i].worker,
-					"crtc_event:%d", priv->event_thread[i].crtc_id);
-			pr_info("%i to little cluster", priv->event_thread[i].crtc_id);
-		}
+		priv->event_thread[i].thread =
+			kthread_run_perf_critical(cpu_perf_mask,
+				kthread_worker_fn,
+				&priv->event_thread[i].worker,
+				"crtc_event:%d", priv->event_thread[i].crtc_id);
 		/**
 		 * event thread should also run at same priority as disp_thread
 		 * because it is handling frame_done events. A lower priority
@@ -2330,9 +2309,6 @@ static void msm_pdev_shutdown(struct platform_device *pdev)
 	struct drm_device *ddev = platform_get_drvdata(pdev);
 	struct msm_drm_private *priv = NULL;
 
-	if (!priv || !priv->kms)
-		return;
-
 	if (!ddev) {
 		DRM_ERROR("invalid drm device node\n");
 		return;
@@ -2387,7 +2363,6 @@ static int __init msm_drm_register(void)
 		return -EINVAL;
 
 	DBG("init");
-	kmem_vblank_work_pool = KMEM_CACHE(vblank_work, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
 	msm_smmu_driver_init();
 	msm_dsi_register();
 	msm_edp_register();

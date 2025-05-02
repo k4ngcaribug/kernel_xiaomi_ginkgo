@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2019, Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/fs.h>
 #include <linux/mutex.h>
@@ -1901,6 +1901,12 @@ static int q6lsm_mmapcallback(struct apr_client_data *data, void *priv)
 		return 0;
 	}
 
+	if (data->payload_size < (2 * sizeof(uint32_t))) {
+		pr_err("%s: payload has invalid size[%d]\n", __func__,
+			data->payload_size);
+		return -EINVAL;
+	}
+
 	command = payload[0];
 	retcode = payload[1];
 	sid = (data->token >> 8) & 0x0F;
@@ -2561,8 +2567,9 @@ int q6lsm_lab_buffer_alloc(struct lsm_client *client, bool alloc)
 				out_params->buf_sz;
 		allocate_size = PAGE_ALIGN(allocate_size);
 		client->lab_buffer =
-			kzalloc(sizeof(struct lsm_lab_buffer) *
-			out_params->period_count, GFP_KERNEL);
+			kcalloc(out_params->period_count,
+				sizeof(struct lsm_lab_buffer),
+				GFP_KERNEL);
 		if (!client->lab_buffer) {
 			pr_err("%s: memory allocation for lab buffer failed count %d\n"
 				, __func__,

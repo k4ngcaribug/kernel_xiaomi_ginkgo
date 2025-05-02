@@ -3171,7 +3171,7 @@ int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel)
 	}
 
 	esd_config->status_value =
-		kzalloc(sizeof(u32) * status_len * esd_config->groups,
+		kzalloc(array3_size(sizeof(u32), status_len, esd_config->groups),
 			GFP_KERNEL);
 	if (!esd_config->status_value) {
 		rc = -ENOMEM;
@@ -4447,9 +4447,9 @@ int dsi_panel_apply_hbm_mode(struct dsi_panel *panel)
 {
 	static const enum dsi_cmd_set_type type_map[] = {
 		DSI_CMD_SET_HBM_OFF,
-		DSI_CMD_SET_HBM_L1_ON,
-		DSI_CMD_SET_HBM_L2_ON,
-		DSI_CMD_SET_HBM_L3_ON,
+		DSI_CMD_SET_HBM1_ON,
+		DSI_CMD_SET_HBM2_ON,
+		DSI_CMD_SET_HBM3_ON,
 	};
 
 	enum dsi_cmd_set_type type;

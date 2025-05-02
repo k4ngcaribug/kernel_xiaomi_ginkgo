@@ -1393,8 +1393,8 @@ static void fcoe_ctlr_recv_clr_vlink(struct fcoe_ctlr *fip,
 	 */
 	num_vlink_desc = rlen / sizeof(*vp);
 	if (num_vlink_desc)
-		vlink_desc_arr = kmalloc(sizeof(vp) * num_vlink_desc,
-					 GFP_ATOMIC);
+		vlink_desc_arr = kmalloc_array(num_vlink_desc, sizeof(vp),
+					       GFP_ATOMIC);
 	if (!vlink_desc_arr)
 		return;
 	num_vlink_desc = 0;
@@ -1978,7 +1978,7 @@ EXPORT_SYMBOL(fcoe_ctlr_recv_flogi);
  *
  * Returns: u64 fc world wide name
  */
-u64 fcoe_wwn_from_mac(unsigned char mac[MAX_ADDR_LEN],
+u64 fcoe_wwn_from_mac(unsigned char mac[ETH_ALEN],
 		      unsigned int scheme, unsigned int port)
 {
 	u64 wwn;

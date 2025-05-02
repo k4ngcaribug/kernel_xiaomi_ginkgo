@@ -28,7 +28,6 @@
 #include <linux/of_irq.h>
 #include <linux/percpu.h>
 #include <linux/slab.h>
-#include <linux/msm_rtb.h>
 #include <linux/wakeup_reason.h>
 
 #include <linux/irqchip.h>
@@ -113,7 +112,7 @@ static void gic_do_wait_for_rwp(void __iomem *base)
 {
 	u32 count = 1000000;	/* 1s! */
 
-	while (readl_relaxed_no_log(base + GICD_CTLR) & GICD_CTLR_RWP) {
+	while (readl_relaxed(base + GICD_CTLR) & GICD_CTLR_RWP) {
 		count--;
 		if (!count) {
 			pr_err_ratelimited("RWP timeout, gone fishing\n");
@@ -231,8 +230,7 @@ static int gic_peek_irq(struct irq_data *d, u32 offset)
 	else
 		base = gic_data.dist_base;
 
-	return !!(readl_relaxed_no_log
-		(base + offset + (gic_irq(d) / 32) * 4) & mask);
+	return !!(readl_relaxed(base + offset + (gic_irq(d) / 32) * 4) & mask);
 }
 
 static void gic_poke_irq(struct irq_data *d, u32 offset)
@@ -304,6 +302,13 @@ static int gic_irq_set_irqchip_state(struct irq_data *d,
 	}
 
 	gic_poke_irq(d, reg);
+
+	/*
+	 * Force read-back to guarantee that the active state has taken
+	 * effect, and won't race with a guest-driven deactivation.
+	 */
+	if (reg == GICD_ISACTIVER)
+		gic_peek_irq(d, reg);
 	return 0;
 }
 
@@ -552,7 +557,7 @@ static u64 gic_mpidr_to_affinity(unsigned long mpidr)
 	return aff;
 }
 
-static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
+static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 {
 	u32 irqnr;
 
@@ -562,7 +567,6 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		if (likely(irqnr > 15 && irqnr < 1020) || irqnr >= 8192) {
 			int err;
 
-			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			if (static_key_true(&supports_deactivate))
 				gic_write_eoir(irqnr);
 			else
@@ -583,7 +587,6 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 			continue;
 		}
 		if (irqnr < 16) {
-			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			gic_write_eoir(irqnr);
 			if (static_key_true(&supports_deactivate))
 				gic_write_dir(irqnr);
@@ -1278,7 +1281,7 @@ static void __init gic_populate_ppi_partitions(struct device_node *gic_node)
 	if (!nr_parts)
 		goto out_put_node;
 
-	parts = kzalloc(sizeof(*parts) * nr_parts, GFP_KERNEL);
+	parts = kcalloc(nr_parts, sizeof(*parts), GFP_KERNEL);
 	if (WARN_ON(!parts))
 		goto out_put_node;
 
@@ -1400,7 +1403,8 @@ static int __init gicv3_of_init(struct device_node *node, struct device_node *pa
 	if (of_property_read_u32(node, "#redistributor-regions", &nr_redist_regions))
 		nr_redist_regions = 1;
 
-	rdist_regs = kzalloc(sizeof(*rdist_regs) * nr_redist_regions, GFP_KERNEL);
+	rdist_regs = kcalloc(nr_redist_regions, sizeof(*rdist_regs),
+			     GFP_KERNEL);
 	if (!rdist_regs) {
 		err = -ENOMEM;
 		goto out_unmap_dist;

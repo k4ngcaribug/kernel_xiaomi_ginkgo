@@ -265,7 +265,7 @@ struct thermal_message_device {
 };
 int thermal_message_device_register(void);
 void thermal_message_device_unregister(void);
-#endif //CONFIG_THERMAL_SWITCH
+#endif /* CONFIG_THERMAL_SWITCH */
 
 /**
  * struct thermal_governor - structure that holds thermal governor information
@@ -435,7 +435,6 @@ enum aggregation_logic {
 	VIRT_MAXIMUM,
 	VIRT_MINIMUM,
 	VIRT_AGGREGATION_NR,
-	VIRT_COUNT_THRESHOLD,
 };
 
 /*
@@ -553,6 +552,7 @@ thermal_of_cooling_device_register(struct device_node *np, const char *, void *,
 void thermal_cooling_device_unregister(struct thermal_cooling_device *);
 struct thermal_zone_device *thermal_zone_get_zone_by_name(const char *name);
 int thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp);
+int thermal_zone_get_temp_nolock(struct thermal_zone_device *tz, int *temp);
 int thermal_zone_get_slope(struct thermal_zone_device *tz);
 int thermal_zone_get_offset(struct thermal_zone_device *tz);
 

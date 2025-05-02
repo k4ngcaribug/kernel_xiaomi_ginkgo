@@ -1578,9 +1578,11 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 	}
 	seq_printf(m,
 		   "\n  node_unreclaimable:  %u"
-		   "\n  start_pfn:           %lu",
+		   "\n  start_pfn:           %lu"
+		   "\n  node_inactive_ratio: %u",
 		   pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES,
-		   zone->zone_start_pfn);
+		   zone->zone_start_pfn,
+		   zone->zone_pgdat->inactive_ratio);
 	seq_putc(m, '\n');
 }
 
@@ -1716,7 +1718,7 @@ static const struct file_operations vmstat_file_operations = {
 
 #ifdef CONFIG_SMP
 static DEFINE_PER_CPU(struct delayed_work, vmstat_work);
-int sysctl_stat_interval __read_mostly = 30 * HZ;
+int sysctl_stat_interval __read_mostly = HZ;
 
 #ifdef CONFIG_PROC_FS
 static void refresh_vm_stats(struct work_struct *work)
@@ -1831,13 +1833,13 @@ static bool need_update(int cpu)
  */
 void quiet_vmstat(void)
 {
-	if (unlikely(system_state != SYSTEM_RUNNING))
+	if (system_state != SYSTEM_RUNNING)
 		return;
 
 	if (!delayed_work_pending(this_cpu_ptr(&vmstat_work)))
 		return;
 
-	if (likely(!need_update(smp_processor_id())))
+	if (!need_update(smp_processor_id()))
 		return;
 
 	/*

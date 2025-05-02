@@ -1,68 +1,117 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Compile script for QuicksilveR kernel
-# Copyright (C) 2020-2023 Adithya R.
+# Copyright (C) 2023 Edwiin Kusuma Jaya (ryuzenn)
+# Copyright (C) 2025 k4ngcaribug
+# Simple Local Kernel Build Script
+#
+# Configured for Redmi Note 8 / ginkgo custom kernel source
+#
+# Setup build env with akhilnarang/scripts repo
+#
+# Use this script on root of kernel directory
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="QuicksilveRV2-ginkgo-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$HOME/tc/clang-r450784d"
-GCC_64_DIR="$HOME/tc/aarch64-linux-android-4.9"
-GCC_32_DIR="$HOME/tc/arm-linux-androideabi-4.9"
+ZIPNAME="Neoohyte-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="Neophyte-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+TC_DIR="/workspace/gitpod/tc/"
+CLANG_DIR="${TC_DIR}clang"
+GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
+GCC_32_DIR="${TC_DIR}arm-linux-androideabi-4.9"
 AK3_DIR="$HOME/AnyKernel3"
-DEFCONFIG="vendor/ginkgo-perf_defconfig"
+DEFCONFIG="vendor/ginkgo_defconfig"
 
-MAKE_PARAMS="O=out ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar AS=llvm-as NM=llvm-nm \
-	OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-	CLANG_TRIPLE=aarch64-linux-gnu- \
-	CROSS_COMPILE=$GCC_64_DIR/bin/aarch64-linux-android- \
-	CROSS_COMPILE_ARM32=$GCC_32_DIR/bin/arm-linux-androideabi-"
+export PATH="$CLANG_DIR/bin:$PATH"
+export LD_LIBRARY_PATH="$CLANG_DIR/lib:$LD_LIBRARY_PATH"
+export KBUILD_BUILD_VERSION="1"
+export LOCALVERSION
 
-export PATH="$TC_DIR/bin:$PATH"
-
-if test -z "$(git rev-parse --show-cdup 2>/dev/null)" &&
-   head=$(git rev-parse --verify HEAD 2>/dev/null); then
-	ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
+if ! [ -d "${CLANG_DIR}" ]; then
+echo "Clang not found! Cloning to ${TC_DIR}..."
+if ! git clone --depth=1 -b 17 https://gitlab.com/nekoprjkt/aosp-clang ${CLANG_DIR}; then
+echo "Cloning failed! Aborting..."
+fi
 fi
 
-if [[ $1 = "-r" || $1 = "--regen" ]]; then
-   make $MAKE_PARAMS $DEFCONFIG savedefconfig
-   cp out/defconfig arch/arm64/configs/$DEFCONFIG
-   echo -e "\nSuccessfully regenerated defconfig at arch/arm64/configs/$DEFCONFIG"
-   exit
+if ! [ -d "${GCC_64_DIR}" ]; then
+echo "gcc not found! Cloning to ${GCC_64_DIR}..."
+if ! git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git ${GCC_64_DIR}; then
+echo "Cloning failed! Aborting..."
+fi
 fi
 
-if [[ $1 = "-c" || $1 = "--clean" ]]; then
-   rm -rf out
-   echo "Cleaned output folder"
+if ! [ -d "${GCC_32_DIR}" ]; then
+echo "gcc_32 not found! Cloning to ${GCC_32_DIR}..."
+if ! git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git ${GCC_32_DIR}; then
+echo "Cloning failed! Aborting..."
+fi
+fi
+
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+	echo -e "\nCleanup KernelSU first on local build\n"
+	rm -rf KernelSU drivers/kernelsu
+else
+	echo -e "\nSet No KernelSU Install, just skip\n"
+fi
+
+# Set function for override kernel name and variants
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+echo -e "\nKSU Support, let's Make it On\n"
+curl -LSs "https://raw.githubusercontent.com/KernelSu-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+git apply KernelSU-hook.patch
+sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
+else
+echo -e "\nKSU not Support, let's Skip\n"
 fi
 
 mkdir -p out
-make $MAKE_PARAMS $DEFCONFIG
+make O=out ARCH=arm64 $DEFCONFIG
 
 echo -e "\nStarting compilation...\n"
-make -j$(nproc --all) $MAKE_PARAMS Image.gz-dtb dtbo.img 2> >(tee error.log >&2) || exit $?
+make -j$(nproc --all) O=out \
+					  ARCH=arm64 \
+					  CC=clang \
+					  LD=ld.lld \
+					  AR=llvm-ar \
+					  AS=llvm-as \
+					  NM=llvm-nm \
+					  OBJCOPY=llvm-objcopy \
+					  OBJDUMP=llvm-objdump \
+					  STRIP=llvm-strip \
+					  CROSS_COMPILE=aarch64-linux-android- \
+					  CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+					  CLANG_TRIPLE=aarch64-linux-gnu- \
+					  Image.gz-dtb \
+					  dtbo.img | tee error.log
 
-kernel="out/arch/arm64/boot/Image.gz-dtb"
-dtbo="out/arch/arm64/boot/dtbo.img"
-
-if [ ! -f "$kernel" ] || [ ! -f "$dtbo" ]; then
-	echo -e "\nCompilation failed!"
-	exit 1
-fi
-
+if [ -f "out/arch/arm64/boot/Image.gz-dtb" ] && [ -f "out/arch/arm64/boot/dtbo.img" ]; then
 echo -e "\nKernel compiled succesfully! Zipping up...\n"
+git restore arch/arm64/configs/vendor/ginkgo_defconfig
 if [ -d "$AK3_DIR" ]; then
-	cp -r $AK3_DIR AnyKernel3
-	git -C AnyKernel3 checkout master &> /dev/null
-elif ! git clone -q https://github.com/ghostrider-reborn/AnyKernel3 -b master; then
-	echo -e "\nAnyKernel3 repo not found locally and couldn't clone from GitHub! Aborting..."
-	exit 1
+cp -r $AK3_DIR AnyKernel3
+elif ! git clone -q https://github.com/k4ngcaribug/AnyKernel3; then
+echo -e "\nAnyKernel3 repo not found locally and cloning failed! Aborting..."
 fi
-cp $kernel $dtbo AnyKernel3
-rm -rf out/arch/arm64/boot
+cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3
+cp out/arch/arm64/boot/dtbo.img AnyKernel3
+rm -f *zip
 cd AnyKernel3
+git checkout main &> /dev/null
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+zip -r9 "../$ZIPNAME_KSU" * -x '*.git*' README.md *placeholder
+else
 zip -r9 "../$ZIPNAME" * -x '*.git*' README.md *placeholder
+fi
 cd ..
 rm -rf AnyKernel3
-echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
-echo "$(realpath $ZIPNAME)"
+rm -rf out/arch/arm64/boot
+echo -e "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+echo "Zip: $ZIPNAME_KSU"
+else
+echo "Zip: $ZIPNAME"
+fi
+else
+echo -e "\nCompilation failed!"
+fi
+echo -e "======================================="
+git restore .

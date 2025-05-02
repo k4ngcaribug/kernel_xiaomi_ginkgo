@@ -400,6 +400,13 @@ int kdb_set(int argc, const char **argv)
 		return KDB_ARGCOUNT;
 
 	/*
+	 * Censor sensitive variables
+	 */
+	if (strcmp(argv[1], "PROMPT") == 0 &&
+	    !kdb_check_flags(KDB_ENABLE_MEM_READ, kdb_cmd_enabled, false))
+		return KDB_NOPERM;
+
+	/*
 	 * Check for internal variables
 	 */
 	if (strcmp(argv[1], "KDBDEBUG") == 0) {
@@ -691,7 +698,7 @@ static int kdb_defcmd2(const char *cmdstr, const char *argv0)
 	}
 	if (!s->usable)
 		return KDB_NOTIMP;
-	s->command = kzalloc((s->count + 1) * sizeof(*(s->command)), GFP_KDB);
+	s->command = kcalloc(s->count + 1, sizeof(*(s->command)), GFP_KDB);
 	if (!s->command) {
 		kdb_printf("Could not allocate new kdb_defcmd table for %s\n",
 			   cmdstr);
@@ -729,8 +736,8 @@ static int kdb_defcmd(int argc, const char **argv)
 		kdb_printf("Command only available during kdb_init()\n");
 		return KDB_NOTIMP;
 	}
-	defcmd_set = kmalloc((defcmd_set_count + 1) * sizeof(*defcmd_set),
-			     GFP_KDB);
+	defcmd_set = kmalloc_array(defcmd_set_count + 1, sizeof(*defcmd_set),
+				   GFP_KDB);
 	if (!defcmd_set)
 		goto fail_defcmd;
 	memcpy(defcmd_set, save_defcmd_set,
@@ -1289,14 +1296,9 @@ static int kdb_local(kdb_reason_t reason, int error, struct pt_regs *regs,
 		*(cmd_hist[cmd_head]) = '\0';
 
 do_full_getstr:
-#if defined(CONFIG_SMP)
+		/* PROMPT can only be set if we have MEM_READ permission. */
 		snprintf(kdb_prompt_str, CMD_BUFLEN, kdbgetenv("PROMPT"),
 			 raw_smp_processor_id());
-#else
-		snprintf(kdb_prompt_str, CMD_BUFLEN, kdbgetenv("PROMPT"));
-#endif
-		if (defcmd_in_progress)
-			strncat(kdb_prompt_str, "[defcmd]", CMD_BUFLEN);
 
 		/*
 		 * Fetch command from keyboard
@@ -2731,8 +2733,9 @@ int kdb_register_flags(char *cmd,
 	}
 
 	if (i >= kdb_max_commands) {
-		kdbtab_t *new = kmalloc((kdb_max_commands - KDB_BASE_CMD_MAX +
-			 kdb_command_extend) * sizeof(*new), GFP_KDB);
+		kdbtab_t *new = kmalloc_array(kdb_max_commands - KDB_BASE_CMD_MAX + kdb_command_extend,
+					      sizeof(*new),
+					      GFP_KDB);
 		if (!new) {
 			kdb_printf("Could not allocate new kdb_command "
 				   "table\n");

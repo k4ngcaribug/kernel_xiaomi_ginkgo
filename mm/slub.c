@@ -1219,7 +1219,7 @@ static noinline int free_debug_processing(
 	struct kmem_cache_node *n = get_node(s, page_to_nid(page));
 	void *object = head;
 	int cnt = 0;
-	unsigned long uninitialized_var(flags);
+	unsigned long flags;
 	int ret = 0;
 
 	spin_lock_irqsave(&n->list_lock, flags);
@@ -2189,7 +2189,7 @@ redo:
 		if (!lock) {
 			lock = 1;
 			/*
-			 * Taking the spinlock removes the possibility
+			 * Taking the spinlock removes the possiblity
 			 * that acquire_slab() will see a slab page that
 			 * is frozen
 			 */
@@ -2249,6 +2249,7 @@ redo:
 
 	c->page = NULL;
 	c->freelist = NULL;
+	c->tid = next_tid(c->tid);
 }
 
 /*
@@ -2384,8 +2385,6 @@ static inline void flush_slab(struct kmem_cache *s, struct kmem_cache_cpu *c)
 {
 	stat(s, CPUSLAB_FLUSH);
 	deactivate_slab(s, c->page, c->freelist, c);
-
-	c->tid = next_tid(c->tid);
 }
 
 /*
@@ -2670,6 +2669,7 @@ redo:
 
 	if (!freelist) {
 		c->page = NULL;
+		c->tid = next_tid(c->tid);
 		stat(s, DEACTIVATE_BYPASS);
 		goto new_slab;
 	}
@@ -2926,7 +2926,7 @@ static void __slab_free(struct kmem_cache *s, struct page *page,
 	struct page new;
 	unsigned long counters;
 	struct kmem_cache_node *n = NULL;
-	unsigned long uninitialized_var(flags);
+	unsigned long flags;
 
 	stat(s, FREE_SLOWPATH);
 
@@ -2980,21 +2980,20 @@ static void __slab_free(struct kmem_cache *s, struct page *page,
 
 	if (likely(!n)) {
 
-		if (likely(was_frozen)) {
-			/*
-			 * The list lock was not taken therefore no list
-			 * activity can be necessary.
-			 */
-			stat(s, FREE_FROZEN);
-		} else if (new.frozen) {
-			/*
-			 * If we just froze the page then put it onto the
-			 * per cpu partial list.
-			 */
+		/*
+		 * If we just froze the page then put it onto the
+		 * per cpu partial list.
+		 */
+		if (new.frozen && !was_frozen) {
 			put_cpu_partial(s, page, 1);
 			stat(s, CPU_PARTIAL_FREE);
 		}
-
+		/*
+		 * The list lock was not taken therefore no list
+		 * activity can be necessary.
+		 */
+		if (was_frozen)
+			stat(s, FREE_FROZEN);
 		return;
 	}
 
@@ -3319,7 +3318,7 @@ EXPORT_SYMBOL(kmem_cache_alloc_bulk);
  * take the list_lock.
  */
 static int slub_min_order;
-static int slub_max_order;
+static int slub_max_order = PAGE_ALLOC_COSTLY_ORDER;
 static int slub_min_objects;
 
 /*
@@ -3781,8 +3780,9 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 #ifdef CONFIG_SLUB_DEBUG
 	void *addr = page_address(page);
 	void *p;
-	unsigned long *map = kzalloc(BITS_TO_LONGS(page->objects) *
-				     sizeof(long), GFP_ATOMIC);
+	unsigned long *map = kcalloc(BITS_TO_LONGS(page->objects),
+				     sizeof(long),
+				     GFP_ATOMIC);
 	if (!map)
 		return;
 	slab_err(s, page, text, s->name);
@@ -4563,8 +4563,9 @@ static long validate_slab_cache(struct kmem_cache *s)
 {
 	int node;
 	unsigned long count = 0;
-	unsigned long *map = kmalloc(BITS_TO_LONGS(oo_objects(s->max)) *
-				sizeof(unsigned long), GFP_KERNEL);
+	unsigned long *map = kmalloc_array(BITS_TO_LONGS(oo_objects(s->max)),
+					   sizeof(unsigned long),
+					   GFP_KERNEL);
 	struct kmem_cache_node *n;
 
 	if (!map)
@@ -4724,8 +4725,9 @@ static int list_locations(struct kmem_cache *s, char *buf,
 	unsigned long i;
 	struct loc_track t = { 0, 0, NULL };
 	int node;
-	unsigned long *map = kmalloc(BITS_TO_LONGS(oo_objects(s->max)) *
-				     sizeof(unsigned long), GFP_KERNEL);
+	unsigned long *map = kmalloc_array(BITS_TO_LONGS(oo_objects(s->max)),
+					   sizeof(unsigned long),
+					   GFP_KERNEL);
 	struct kmem_cache_node *n;
 
 	if (!map || !alloc_loc_track(&t, PAGE_SIZE / sizeof(struct location),
@@ -4902,7 +4904,7 @@ static ssize_t show_slab_objects(struct kmem_cache *s,
 	int x;
 	unsigned long *nodes;
 
-	nodes = kzalloc(sizeof(unsigned long) * nr_node_ids, GFP_KERNEL);
+	nodes = kcalloc(nr_node_ids, sizeof(unsigned long), GFP_KERNEL);
 	if (!nodes)
 		return -ENOMEM;
 
@@ -5457,7 +5459,7 @@ static int show_stat(struct kmem_cache *s, char *buf, enum stat_item si)
 	unsigned long sum  = 0;
 	int cpu;
 	int len;
-	int *data = kmalloc(nr_cpu_ids * sizeof(int), GFP_KERNEL);
+	int *data = kmalloc_array(nr_cpu_ids, sizeof(int), GFP_KERNEL);
 
 	if (!data)
 		return -ENOMEM;
@@ -5785,7 +5787,8 @@ static char *create_unique_id(struct kmem_cache *s)
 	char *name = kmalloc(ID_STR_LENGTH, GFP_KERNEL);
 	char *p = name;
 
-	BUG_ON(!name);
+	if (!name)
+		return ERR_PTR(-ENOMEM);
 
 	*p++ = ':';
 	/*
@@ -5865,6 +5868,8 @@ static int sysfs_slab_add(struct kmem_cache *s)
 		 * for the symlinks.
 		 */
 		name = create_unique_id(s);
+		if (IS_ERR(name))
+			return PTR_ERR(name);
 	}
 
 	s->kobj.kset = kset;

@@ -866,7 +866,7 @@ static int ubd_open_dev(struct ubd *ubd_dev)
 
 static void ubd_device_release(struct device *dev)
 {
-	struct ubd *ubd_dev = dev_get_drvdata(dev);
+	struct ubd *ubd_dev = container_of(dev, struct ubd, pdev.dev);
 
 	blk_cleanup_queue(ubd_dev->queue);
 	*ubd_dev = ((struct ubd) DEFAULT_UBD);
@@ -1139,26 +1139,26 @@ static int __init ubd_init(void)
 			return -1;
 	}
 
-	irq_req_buffer = kmalloc(
-			sizeof(struct io_thread_req *) * UBD_REQ_BUFFER_SIZE,
-			GFP_KERNEL
+	irq_req_buffer = kmalloc_array(UBD_REQ_BUFFER_SIZE,
+				       sizeof(struct io_thread_req *),
+				       GFP_KERNEL
 		);
 	irq_remainder = 0;
 
 	if (irq_req_buffer == NULL) {
 		printk(KERN_ERR "Failed to initialize ubd buffering\n");
-		return -1;
+		return -ENOMEM;
 	}
-	io_req_buffer = kmalloc(
-			sizeof(struct io_thread_req *) * UBD_REQ_BUFFER_SIZE,
-			GFP_KERNEL
+	io_req_buffer = kmalloc_array(UBD_REQ_BUFFER_SIZE,
+				      sizeof(struct io_thread_req *),
+				      GFP_KERNEL
 		);
 
 	io_remainder = 0;
 
 	if (io_req_buffer == NULL) {
 		printk(KERN_ERR "Failed to initialize ubd buffering\n");
-		return -1;
+		return -ENOMEM;
 	}
 	platform_driver_register(&ubd_driver);
 	mutex_lock(&ubd_lock);
