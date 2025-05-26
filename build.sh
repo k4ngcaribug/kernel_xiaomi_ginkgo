@@ -13,7 +13,7 @@
 SECONDS=0 # builtin bash timer
 ZIPNAME="Neoohyte-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 ZIPNAME_KSU="Neophyte-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-TC_DIR="/workspace/gitpod/tc/"
+TC_DIR="$(pwd)/../clang"
 CLANG_DIR="${TC_DIR}clang"
 GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
 GCC_32_DIR="${TC_DIR}arm-linux-androideabi-4.9"
@@ -27,7 +27,7 @@ export LOCALVERSION
 
 if ! [ -d "${CLANG_DIR}" ]; then
 echo "Clang not found! Cloning to ${TC_DIR}..."
-if ! git clone --depth=1 -b 17 https://gitlab.com/nekoprjkt/aosp-clang ${CLANG_DIR}; then
+if ! git clone --depth=1 -b clang-18 https://gitlab.com/LeCmnGend/clang ${CLANG_DIR}; then
 echo "Cloning failed! Aborting..."
 fi
 fi
