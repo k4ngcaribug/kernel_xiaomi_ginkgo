@@ -13,7 +13,7 @@
 SECONDS=0 # builtin bash timer
 ZIPNAME="Neoohyte-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 ZIPNAME_KSU="Neophyte-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
-TC_DIR="$(pwd)/../clang"
+TC_DIR="$(pwd)/../tc/"
 CLANG_DIR="${TC_DIR}clang"
 GCC_64_DIR="${TC_DIR}aarch64-linux-android-4.9"
 GCC_32_DIR="${TC_DIR}arm-linux-androideabi-4.9"
