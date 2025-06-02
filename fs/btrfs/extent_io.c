@@ -92,10 +92,10 @@ static inline void __btrfs_debug_check_extent_io_range(const char *caller,
 						 start, end);
 }
 #else
-#define btrfs_leak_debug_add(new, head)	do {} while (0)
-#define btrfs_leak_debug_del(entry)	do {} while (0)
-#define btrfs_leak_debug_check()	do {} while (0)
-#define btrfs_debug_check_extent_io_range(c, s, e)	do {} while (0)
+#define btrfs_leak_debug_add(new, head)	((void)0)
+#define btrfs_leak_debug_del(entry)	((void)0)
+#define btrfs_leak_debug_check()	((void)0)
+#define btrfs_debug_check_extent_io_range(c, s, e)	((void)0)
 #endif
 
 #define BUFFER_LRU_MAX 64
@@ -3879,11 +3879,12 @@ retry:
 			free_extent_buffer(eb);
 
 			/*
-			 * the filesystem may choose to bump up nr_to_write.
+			 * The filesystem may choose to bump up nr_to_write.
 			 * We have to make sure to honor the new nr_to_write
-			 * at any time
+			 * at any time.
 			 */
-			nr_to_write_done = wbc->nr_to_write <= 0;
+			nr_to_write_done = (wbc->sync_mode == WB_SYNC_NONE &&
+					    wbc->nr_to_write <= 0);
 		}
 		pagevec_release(&pvec);
 		cond_resched();

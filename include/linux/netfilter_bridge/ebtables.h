@@ -98,10 +98,6 @@ struct ebt_table {
 	struct ebt_replace_kernel *table;
 	unsigned int valid_hooks;
 	rwlock_t lock;
-	/* e.g. could be the table explicitly only allows certain
-	 * matches, targets, ... 0 == let it in */
-	int (*check)(const struct ebt_table_info *info,
-	   unsigned int valid_hooks);
 	/* the data used by the kernel */
 	struct ebt_table_info *private;
 	struct module *me;
@@ -118,6 +114,15 @@ extern void ebt_unregister_table(struct net *net, struct ebt_table *table,
 extern unsigned int ebt_do_table(struct sk_buff *skb,
 				 const struct nf_hook_state *state,
 				 struct ebt_table *table);
+
+
+#define ebt_entry_foreach(pos, ehead, esize) \
+	for ((pos) = (struct ebt_entry *)(ehead); \
+	     (pos) < (struct ebt_entry *)((char *)(ehead) + (esize)); \
+	     (pos) = (struct ebt_entry *)((char *)(pos) + \
+		     ((pos)->bitmask == 0 ? sizeof(struct ebt_entries) : \
+		     (pos)->next_offset)))
+
 
 /* True if the hook mask denotes that the rule is in a base chain,
  * used in the check() functions */

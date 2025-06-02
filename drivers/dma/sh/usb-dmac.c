@@ -269,7 +269,7 @@ static int usb_dmac_desc_alloc(struct usb_dmac_chan *chan, unsigned int sg_len,
 	struct usb_dmac_desc *desc;
 	unsigned long flags;
 
-	desc = kzalloc(struct_size(desc, sg, sg_len), gfp);
+	desc = kzalloc(sizeof(*desc) + sg_len * sizeof(desc->sg[0]), gfp);
 	if (!desc)
 		return -ENOMEM;
 
@@ -858,8 +858,8 @@ static int usb_dmac_probe(struct platform_device *pdev)
 
 error:
 	of_dma_controller_free(pdev->dev.of_node);
-	pm_runtime_put(&pdev->dev);
 error_pm:
+	pm_runtime_put(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 	return ret;
 }

@@ -1615,7 +1615,7 @@ __init struct attribute **merge_attr(struct attribute **a, struct attribute **b)
 		j++;
 	j++;
 
-	new = kmalloc_array(j, sizeof(struct attribute *), GFP_KERNEL);
+	new = kmalloc(sizeof(struct attribute *) * j, GFP_KERNEL);
 	if (!new)
 		return NULL;
 
@@ -2094,6 +2094,7 @@ static int x86_pmu_event_init(struct perf_event *event)
 	if (err) {
 		if (event->destroy)
 			event->destroy(event);
+		event->destroy = NULL;
 	}
 
 	if (ACCESS_ONCE(x86_pmu.attr_rdpmc))

@@ -288,9 +288,10 @@ static int bolero_copy_dais_from_macro(struct bolero_priv *priv)
 
 	/* memcpy into bolero_dais all macro dais */
 	if (!priv->bolero_dais)
-		priv->bolero_dais = devm_kcalloc(priv->dev,
-						priv->num_dais,
-						sizeof(struct snd_soc_dai_driver),
+		priv->bolero_dais = devm_kzalloc(priv->dev,
+						priv->num_dais *
+						sizeof(
+						struct snd_soc_dai_driver),
 						GFP_KERNEL);
 	if (!priv->bolero_dais)
 		return -ENOMEM;
@@ -856,10 +857,9 @@ static void bolero_add_child_devices(struct work_struct *work)
 		pdev->dev.parent = priv->dev;
 		pdev->dev.of_node = node;
 
-		if (wcd937x_node) {
-			priv->dev->platform_data = platdata;
+		priv->dev->platform_data = platdata;
+		if (wcd937x_node)
 			priv->wcd_dev = &pdev->dev;
-		}
 
 		ret = platform_device_add(pdev);
 		if (ret) {

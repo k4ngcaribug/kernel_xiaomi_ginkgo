@@ -48,7 +48,7 @@
 #define VDBG(fmt, args...) pr_debug("[%s]  " fmt, \
 				 __func__, ## args)
 #else
-#define VDBG(stuff...)	do {} while (0)
+#define VDBG(stuff...)	((void)0)
 #endif
 
 #define DRIVER_VERSION "Rev. 1.55"
@@ -886,6 +886,8 @@ int usb_otg_start(struct platform_device *pdev)
 
 	/* request irq */
 	p_otg->irq = platform_get_irq(pdev, 0);
+	if (p_otg->irq < 0)
+		return p_otg->irq;
 	status = request_irq(p_otg->irq, fsl_otg_isr,
 				IRQF_SHARED, driver_name, p_otg);
 	if (status) {

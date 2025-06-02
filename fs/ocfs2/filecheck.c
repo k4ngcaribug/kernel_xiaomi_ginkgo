@@ -222,7 +222,7 @@ int ocfs2_filecheck_create_sysfs(struct super_block *sb)
 	if (!ocfs2_kset)
 		return -ENOMEM;
 
-	attrs = kmalloc_array(4, sizeof(struct attribute *), GFP_NOFS);
+	attrs = kmalloc(sizeof(struct attribute *) * 4, GFP_NOFS);
 	if (!attrs) {
 		ret = -ENOMEM;
 		goto error;
@@ -431,11 +431,7 @@ static ssize_t ocfs2_filecheck_show(struct kobject *kobj,
 		ret = snprintf(buf + total, remain, "%lu\t\t%u\t%s\n",
 			       p->fe_ino, p->fe_done,
 			       ocfs2_filecheck_error(p->fe_status));
-		if (ret < 0) {
-			total = ret;
-			break;
-		}
-		if (ret == remain) {
+		if (ret >= remain) {
 			/* snprintf() didn't fit */
 			total = -E2BIG;
 			break;

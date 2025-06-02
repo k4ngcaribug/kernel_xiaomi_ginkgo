@@ -4099,9 +4099,9 @@ static int msm_auxpcm_dev_probe(struct platform_device *pdev)
 	}
 
 	auxpcm_pdata->mode_8k.slot_mapping =
-					kcalloc(auxpcm_pdata->mode_8k.num_slots,
-						sizeof(uint16_t),
-						GFP_KERNEL);
+					kzalloc(sizeof(uint16_t) *
+					    auxpcm_pdata->mode_8k.num_slots,
+					    GFP_KERNEL);
 	if (!auxpcm_pdata->mode_8k.slot_mapping) {
 		dev_err(&pdev->dev, "%s No mem for mode_8k slot mapping\n",
 			__func__);
@@ -4114,9 +4114,9 @@ static int msm_auxpcm_dev_probe(struct platform_device *pdev)
 				(u16)be32_to_cpu(slot_mapping_array[i]);
 
 	auxpcm_pdata->mode_16k.slot_mapping =
-					kcalloc(auxpcm_pdata->mode_16k.num_slots,
-						sizeof(uint16_t),
-						GFP_KERNEL);
+					kzalloc(sizeof(uint16_t) *
+					     auxpcm_pdata->mode_16k.num_slots,
+					     GFP_KERNEL);
 
 	if (!auxpcm_pdata->mode_16k.slot_mapping) {
 		dev_err(&pdev->dev, "%s No mem for mode_16k slot mapping\n",
@@ -6281,6 +6281,7 @@ static struct platform_driver msm_dai_q6_dev = {
 		.name = "msm-dai-q6-dev",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dev_dt_match,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -6318,6 +6319,7 @@ static struct platform_driver msm_dai_q6 = {
 		.name = "msm-dai-q6",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dt_match,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -6645,6 +6647,7 @@ static struct platform_driver msm_dai_tdm_q6 = {
 		.name = "msm-dai-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_tdm_dt_match,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -10300,6 +10303,7 @@ static struct platform_driver msm_dai_q6_tdm_driver = {
 		.name = "msm-dai-q6-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_tdm_dev_dt_match,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 

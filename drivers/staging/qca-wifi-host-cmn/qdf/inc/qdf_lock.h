@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -44,20 +44,25 @@
 
 /* Max hold time in micro seconds, 0 to disable detection*/
 #define QDF_MAX_HOLD_TIME_ALOWED_SPINLOCK_IRQ         10000
-#define QDF_MAX_HOLD_TIME_ALOWED_SPINLOCK_BH        1000000
 #define QDF_MAX_HOLD_TIME_ALOWED_SPINLOCK                 0
+
+#if QDF_LOCK_STATS
+#define QDF_MAX_HOLD_TIME_ALOWED_SPINLOCK_BH        2000000
+#else
+#define QDF_MAX_HOLD_TIME_ALOWED_SPINLOCK_BH        1000000
+#endif
 
 #if !QDF_LOCK_STATS
 struct lock_stats {};
-#define BEFORE_LOCK(x...) do {} while (0)
-#define AFTER_LOCK(x...) do {} while (0)
-#define BEFORE_TRYLOCK(x...) do {} while (0)
-#define AFTER_TRYLOCK(x...) do {} while (0)
-#define BEFORE_UNLOCK(x...) do {} while (0)
-#define qdf_lock_stats_create(x...) do {} while (0)
-#define qdf_lock_stats_destroy(x...) do {} while (0)
-#define qdf_lock_stats_init(x...) do {} while (0)
-#define qdf_lock_stats_deinit(x...) do {} while (0)
+#define BEFORE_LOCK(x...) ((void)0)
+#define AFTER_LOCK(x...) ((void)0)
+#define BEFORE_TRYLOCK(x...) ((void)0)
+#define AFTER_TRYLOCK(x...) ((void)0)
+#define BEFORE_UNLOCK(x...) ((void)0)
+#define qdf_lock_stats_create(x...) ((void)0)
+#define qdf_lock_stats_destroy(x...) ((void)0)
+#define qdf_lock_stats_init(x...) ((void)0)
+#define qdf_lock_stats_deinit(x...) ((void)0)
 #else
 void qdf_lock_stats_init(void);
 void qdf_lock_stats_deinit(void);
@@ -86,7 +91,7 @@ do { \
 	uint64_t AFTER_LOCK_time;  \
 	bool BEFORE_LOCK_is_locked = was_locked; \
 	BEFORE_LOCK_time = qdf_get_log_timestamp(); \
-	do {} while (0)
+	((void)0)
 
 
 #define AFTER_LOCK(lock, func) \
@@ -117,7 +122,7 @@ do { \
 	uint64_t BEFORE_LOCK_time; \
 	uint64_t AFTER_LOCK_time;  \
 	BEFORE_LOCK_time = qdf_get_log_timestamp(); \
-	do {} while (0)
+	((void)0)
 
 #define AFTER_TRYLOCK(lock, trylock_return, func) \
 	AFTER_LOCK_time = qdf_get_log_timestamp(); \

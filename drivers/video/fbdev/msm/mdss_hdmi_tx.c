@@ -1,4 +1,5 @@
-/* Copyright (c) 2010-2018, 2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2018, 2020-2021,
+ * The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1910,7 +1911,7 @@ static int hdmi_tx_init_cec_hw(struct hdmi_tx_ctrl *hdmi_ctrl)
 	cec_init_data.pinfo = &hdmi_ctrl->panel_data.panel_info;
 	cec_init_data.ops = &hdmi_ctrl->hdmi_cec_ops;
 	cec_init_data.cbs = &hdmi_ctrl->hdmi_cec_cbs;
-
+	cec_init_data.dev = &hdmi_ctrl->pdev->dev;
 	cec_hw_data = hdmi_cec_init(&cec_init_data);
 	if (IS_ERR_OR_NULL(cec_hw_data)) {
 		DEV_ERR("%s: cec init failed\n", __func__);
@@ -1919,29 +1920,6 @@ static int hdmi_tx_init_cec_hw(struct hdmi_tx_ctrl *hdmi_ctrl)
 		hdmi_ctrl->panel_data.panel_info.is_cec_supported = true;
 		hdmi_tx_set_fd(HDMI_TX_FEAT_CEC_HW, cec_hw_data);
 		DEV_DBG("%s: cec hw initialized\n", __func__);
-	}
-
-	return rc;
-}
-
-static int hdmi_tx_init_cec_abst(struct hdmi_tx_ctrl *hdmi_ctrl)
-{
-	struct cec_abstract_init_data cec_abst_init_data = {0};
-	void *cec_abst_data;
-	int rc = 0;
-
-	cec_abst_init_data.kobj  = hdmi_ctrl->kobj;
-	cec_abst_init_data.ops   = &hdmi_ctrl->hdmi_cec_ops;
-	cec_abst_init_data.cbs   = &hdmi_ctrl->hdmi_cec_cbs;
-
-	cec_abst_data = cec_abstract_init(&cec_abst_init_data);
-	if (IS_ERR_OR_NULL(cec_abst_data)) {
-		DEV_ERR("%s: cec abst init failed\n", __func__);
-		rc = -EINVAL;
-	} else {
-		hdmi_tx_set_fd(HDMI_TX_FEAT_CEC_ABST, cec_abst_data);
-		hdmi_ctrl->panel_data.panel_info.cec_data = cec_abst_data;
-		DEV_DBG("%s: cec abst initialized\n", __func__);
 	}
 
 	return rc;
@@ -2088,15 +2066,6 @@ static void hdmi_tx_deinit_features(struct hdmi_tx_ctrl *hdmi_ctrl,
 {
 	void *fd;
 
-	if (features & HDMI_TX_FEAT_CEC_ABST) {
-		fd = hdmi_tx_get_fd(HDMI_TX_FEAT_CEC_ABST);
-
-		cec_abstract_deinit(fd);
-
-		hdmi_ctrl->panel_data.panel_info.cec_data = NULL;
-		hdmi_tx_set_fd(HDMI_TX_FEAT_CEC_ABST, 0);
-	}
-
 	if (features & HDMI_TX_FEAT_CEC_HW) {
 		fd = hdmi_tx_get_fd(HDMI_TX_FEAT_CEC_HW);
 
@@ -2166,12 +2135,6 @@ static int hdmi_tx_init_features(struct hdmi_tx_ctrl *hdmi_ctrl,
 	ret = hdmi_tx_init_cec_hw(hdmi_ctrl);
 	if (ret) {
 		deinit_features |= HDMI_TX_FEAT_HDCP;
-		goto err;
-	}
-
-	ret = hdmi_tx_init_cec_abst(hdmi_ctrl);
-	if (ret) {
-		deinit_features |= HDMI_TX_FEAT_CEC_HW;
 		goto err;
 	}
 
@@ -4191,10 +4154,8 @@ static int hdmi_tx_init_power_data(struct device *dev,
 		}
 
 	hpd_power_data->num_clk = hpd_clk_count;
-	hpd_power_data->clk_config = devm_kcalloc(dev,
-						  hpd_power_data->num_clk,
-						  sizeof(struct dss_clk),
-						  GFP_KERNEL);
+	hpd_power_data->clk_config = devm_kzalloc(dev, sizeof(struct dss_clk) *
+			hpd_power_data->num_clk, GFP_KERNEL);
 	if (!hpd_power_data->clk_config) {
 		rc = -EINVAL;
 		goto exit;
@@ -4208,10 +4169,8 @@ static int hdmi_tx_init_power_data(struct device *dev,
 	}
 
 	core_power_data->num_clk = core_clk_count;
-	core_power_data->clk_config = devm_kcalloc(dev,
-						   core_power_data->num_clk,
-						   sizeof(struct dss_clk),
-						   GFP_KERNEL);
+	core_power_data->clk_config = devm_kzalloc(dev, sizeof(struct dss_clk) *
+			core_power_data->num_clk, GFP_KERNEL);
 	if (!core_power_data->clk_config) {
 		core_power_data->num_clk = 0;
 		rc = -EINVAL;
@@ -4390,10 +4349,8 @@ static int hdmi_tx_get_dt_vreg_data(struct device *dev,
 
 	if (mod_vreg_total > 0) {
 		mp->num_vreg = mod_vreg_total;
-		mp->vreg_config = devm_kcalloc(dev,
-					       mod_vreg_total,
-					       sizeof(struct dss_vreg),
-					       GFP_KERNEL);
+		mp->vreg_config = devm_kzalloc(dev, sizeof(struct dss_vreg) *
+			mod_vreg_total, GFP_KERNEL);
 		if (!mp->vreg_config) {
 			DEV_ERR("%s: can't alloc '%s' vreg mem\n", __func__,
 				hdmi_tx_pm_name(module_type));
@@ -4404,7 +4361,7 @@ static int hdmi_tx_get_dt_vreg_data(struct device *dev,
 		return 0;
 	}
 
-	val_array = devm_kcalloc(dev, dt_vreg_total, sizeof(u32), GFP_KERNEL);
+	val_array = devm_kzalloc(dev, sizeof(u32) * dt_vreg_total, GFP_KERNEL);
 	if (!val_array) {
 		DEV_ERR("%s: can't allocate vreg scratch mem\n", __func__);
 		rc = -ENOMEM;
@@ -4576,9 +4533,8 @@ static int hdmi_tx_get_dt_gpio_data(struct device *dev,
 	DEV_DBG("%s: mp_gpio_cnt = %d\n", __func__, mp_gpio_cnt);
 	mp->num_gpio = mp_gpio_cnt;
 
-	mp->gpio_config = devm_kcalloc(dev,
-				       mp_gpio_cnt, sizeof(struct dss_gpio),
-				       GFP_KERNEL);
+	mp->gpio_config = devm_kzalloc(dev, sizeof(struct dss_gpio) *
+		mp_gpio_cnt, GFP_KERNEL);
 	if (!mp->gpio_config) {
 		DEV_ERR("%s: can't alloc '%s' gpio mem\n", __func__,
 			hdmi_tx_pm_name(module_type));

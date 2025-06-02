@@ -983,7 +983,7 @@ static int iscsi_check_acceptor_state(struct iscsi_param *param, char *value,
 		if (!strcmp(param->value, YES))
 			acceptor_boolean_value = 1;
 		if (acceptor_boolean_value && proposer_boolean_value)
-			do {} while (0);
+			((void)0);
 		else {
 			if (iscsi_update_param_value(param, NO) < 0)
 				return -1;
@@ -1270,18 +1270,20 @@ static struct iscsi_param *iscsi_check_key(
 		return param;
 
 	if (!(param->phase & phase)) {
-		pr_err("Key \"%s\" may not be negotiated during ",
-				param->name);
+		char *phase_name;
+
 		switch (phase) {
 		case PHASE_SECURITY:
-			pr_debug("Security phase.\n");
+			phase_name = "Security";
 			break;
 		case PHASE_OPERATIONAL:
-			pr_debug("Operational phase.\n");
+			phase_name = "Operational";
 			break;
 		default:
-			pr_debug("Unknown phase.\n");
+			phase_name = "Unknown";
 		}
+		pr_err("Key \"%s\" may not be negotiated during %s phase.\n",
+				param->name, phase_name);
 		return NULL;
 	}
 

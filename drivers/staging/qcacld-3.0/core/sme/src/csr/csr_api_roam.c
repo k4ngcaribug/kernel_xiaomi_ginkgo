@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -61,6 +61,7 @@
 #include <wlan_cp_stats_mc_ucfg_api.h>
 #include "wlan_pkt_capture_ucfg_api.h"
 #include "nan_ucfg_api.h"
+#include <cds_ieee80211_common.h>
 
 #define RSN_AUTH_KEY_MGMT_SAE           WLAN_RSN_SEL(WLAN_AKM_SAE)
 #define MAX_PWR_FCC_CHAN_12 8
@@ -2921,6 +2922,19 @@ csr_update_sae_single_pmk_cfg_param(tpAniSirGlobal mac, tCsrConfigParam *param)
 }
 #endif
 
+#ifdef WLAN_FEATURE_SAE
+static void
+csr_update_sae_connect_retries(tpAniSirGlobal mac, tCsrConfigParam *param)
+{
+	mac->sae_connect_retries = param->sae_connect_retries;
+}
+#else
+static void
+csr_update_sae_connect_retries(tpAniSirGlobal mac, tCsrConfigParam *param)
+{
+}
+#endif
+
 QDF_STATUS csr_change_default_config_param(tpAniSirGlobal pMac,
 					   tCsrConfigParam *pParam)
 {
@@ -3494,6 +3508,7 @@ QDF_STATUS csr_change_default_config_param(tpAniSirGlobal pMac,
 					pParam->enable_pending_list_req;
 		pMac->roam.configParam.sta_disable_roam =
 					pParam->sta_disable_roam;
+		csr_update_sae_connect_retries(pMac, pParam);
 	}
 	return status;
 }
@@ -3553,6 +3568,17 @@ csr_get_sae_single_pmk_config(tpAniSirGlobal mac, tCsrConfigParam *param)
 #else
 static inline void
 csr_get_sae_single_pmk_config(tpAniSirGlobal mac, tCsrConfigParam *param)
+{
+}
+#endif
+
+#ifdef WLAN_FEATURE_SAE
+static void csr_get_sae_reties_count(tpAniSirGlobal mac, tCsrConfigParam *param)
+{
+	param->sae_connect_retries = mac->sae_connect_retries;
+}
+#else
+static void csr_get_sae_reties_count(tpAniSirGlobal mac, tCsrConfigParam *param)
 {
 }
 #endif
@@ -3900,6 +3926,7 @@ QDF_STATUS csr_get_config_param(tpAniSirGlobal pMac, tCsrConfigParam *pParam)
 	csr_get_adaptive_11r_config(pMac, pParam);
 	csr_get_sae_single_pmk_config(pMac, pParam);
 	csr_get_he_config_param(pParam, pMac);
+	csr_get_sae_reties_count(pMac, pParam);
 
 	csr_get_11k_offload_config_param(&pMac->roam.configParam, pParam);
 
@@ -7321,243 +7348,6 @@ void csr_reset_bkid_candidate_list(tpAniSirGlobal pMac, uint32_t sessionId)
 }
 #endif /* FEATURE_WLAN_WAPI */
 
-/**
- * csr_roam_save_params() - Helper function to save params
- * @mac_ctx: pointer to mac context
- * @session_ptr: Session pointer
- * @auth_type: auth type
- * @ie_ptr: pointer to ie
- * @ie_local: pointr to local ie
- *
- * This function will save params to session
- *
- * Return: none.
- */
-static QDF_STATUS csr_roam_save_params(tpAniSirGlobal mac_ctx,
-				struct csr_roam_session *session_ptr,
-				eCsrAuthType auth_type,
-				tDot11fBeaconIEs *ie_ptr,
-				tDot11fBeaconIEs *ie_local)
-{
-	uint32_t nIeLen;
-	uint8_t *pIeBuf;
-
-	if ((eCSR_AUTH_TYPE_RSN == auth_type) ||
-	    (eCSR_AUTH_TYPE_FT_RSN == auth_type) ||
-	    (eCSR_AUTH_TYPE_FT_RSN_PSK == auth_type) ||
-	    (eCSR_AUTH_TYPE_FT_SAE == auth_type) ||
-	    (eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384 == auth_type) ||
-	    (eCSR_AUTH_TYPE_SUITEB_EAP_SHA256 == auth_type) ||
-	    (eCSR_AUTH_TYPE_SUITEB_EAP_SHA384 == auth_type) ||
-#if defined WLAN_FEATURE_11W
-	    (eCSR_AUTH_TYPE_RSN_PSK_SHA256 == auth_type) ||
-	    (eCSR_AUTH_TYPE_RSN_8021X_SHA256 == auth_type) ||
-#endif
-	    (eCSR_AUTH_TYPE_RSN_PSK == auth_type)) {
-		if (ie_local->RSN.present) {
-			tDot11fIERSN *rsnie = &ie_local->RSN;
-			/*
-			 * Calculate the actual length
-			 * version + gp_cipher_suite + pwise_cipher_suite_count
-			 * + akm_suite_cnt + reserved + pwise_cipher_suites
-			 */
-			nIeLen = 8 + 2 + 2
-				+ (rsnie->pwise_cipher_suite_count * 4)
-				+ (rsnie->akm_suite_cnt * 4);
-			if (rsnie->pmkid_count)
-				/* pmkid */
-				nIeLen += 2 + rsnie->pmkid_count * 4;
-
-			/* nIeLen doesn't count EID and length fields */
-			session_ptr->pWpaRsnRspIE = qdf_mem_malloc(nIeLen + 2);
-			if (NULL == session_ptr->pWpaRsnRspIE)
-				return QDF_STATUS_E_NOMEM;
-
-			session_ptr->pWpaRsnRspIE[0] = DOT11F_EID_RSN;
-			session_ptr->pWpaRsnRspIE[1] = (uint8_t) nIeLen;
-			/* copy upto akm_suite */
-			pIeBuf = session_ptr->pWpaRsnRspIE + 2;
-			qdf_mem_copy(pIeBuf, &rsnie->version,
-					sizeof(rsnie->version));
-			pIeBuf += sizeof(rsnie->version);
-			qdf_mem_copy(pIeBuf, &rsnie->gp_cipher_suite,
-				sizeof(rsnie->gp_cipher_suite));
-			pIeBuf += sizeof(rsnie->gp_cipher_suite);
-			qdf_mem_copy(pIeBuf, &rsnie->pwise_cipher_suite_count,
-				sizeof(rsnie->pwise_cipher_suite_count));
-			pIeBuf += sizeof(rsnie->pwise_cipher_suite_count);
-			if (rsnie->pwise_cipher_suite_count) {
-				/* copy pwise_cipher_suites */
-				qdf_mem_copy(pIeBuf, rsnie->pwise_cipher_suites,
-					rsnie->pwise_cipher_suite_count * 4);
-				pIeBuf += rsnie->pwise_cipher_suite_count * 4;
-			}
-			qdf_mem_copy(pIeBuf, &rsnie->akm_suite_cnt, 2);
-			pIeBuf += 2;
-			if (rsnie->akm_suite_cnt) {
-				/* copy akm_suite */
-				qdf_mem_copy(pIeBuf, rsnie->akm_suite,
-					rsnie->akm_suite_cnt * 4);
-				pIeBuf += rsnie->akm_suite_cnt * 4;
-			}
-			/* copy the rest */
-			qdf_mem_copy(pIeBuf, rsnie->akm_suite +
-				rsnie->akm_suite_cnt * 4,
-				2 + rsnie->pmkid_count * 4);
-			session_ptr->nWpaRsnRspIeLength = nIeLen + 2;
-		}
-	} else if ((eCSR_AUTH_TYPE_WPA == auth_type) ||
-			(eCSR_AUTH_TYPE_WPA_PSK == auth_type)) {
-		if (ie_local->WPA.present) {
-			tDot11fIEWPA *wpaie = &ie_local->WPA;
-			/* Calculate the actual length wpaie */
-			nIeLen = 12 + 2 /* auth_suite_count */
-				+ wpaie->unicast_cipher_count * 4
-				+ wpaie->auth_suite_count * 4;
-
-			/* The WPA capabilities follows the Auth Suite
-			 * (two octects)-- this field is optional, and
-			 * we always "send" zero, so just remove it.  This is
-			 * consistent with our assumptions in the frames
-			 * compiler; nIeLen doesn't count EID & length fields
-			 */
-			session_ptr->pWpaRsnRspIE = qdf_mem_malloc(nIeLen + 2);
-			if (NULL == session_ptr->pWpaRsnRspIE)
-				return QDF_STATUS_E_NOMEM;
-			session_ptr->pWpaRsnRspIE[0] = DOT11F_EID_WPA;
-			session_ptr->pWpaRsnRspIE[1] = (uint8_t) nIeLen;
-			pIeBuf = session_ptr->pWpaRsnRspIE + 2;
-			/* Copy WPA OUI */
-			qdf_mem_copy(pIeBuf, &csr_wpa_oui[1], 4);
-			pIeBuf += 4;
-			qdf_mem_copy(pIeBuf, &wpaie->version,
-				8 + wpaie->unicast_cipher_count * 4);
-			pIeBuf += 8 + wpaie->unicast_cipher_count * 4;
-			qdf_mem_copy(pIeBuf, &wpaie->auth_suite_count,
-				2 + wpaie->auth_suite_count * 4);
-			pIeBuf += wpaie->auth_suite_count * 4;
-			session_ptr->nWpaRsnRspIeLength = nIeLen + 2;
-		}
-	}
-#ifdef FEATURE_WLAN_WAPI
-	else if ((eCSR_AUTH_TYPE_WAPI_WAI_PSK == auth_type) ||
-			(eCSR_AUTH_TYPE_WAPI_WAI_CERTIFICATE ==
-			 auth_type)) {
-		if (ie_local->WAPI.present) {
-			tDot11fIEWAPI *wapi_ie = &ie_local->WAPI;
-			/* Calculate the actual length of wapi ie*/
-			nIeLen = 4 + 2 /* pwise_cipher_suite_count */
-				+ wapi_ie->akm_suite_count * 4
-				+ wapi_ie->unicast_cipher_suite_count * 4
-				+ 6;  /* gp_cipher_suite + preauth + reserved */
-
-			if (wapi_ie->bkid_count)
-				nIeLen += 2 + wapi_ie->bkid_count * 4;
-
-			/* nIeLen doesn't count EID and length fields */
-			session_ptr->pWapiRspIE =
-				qdf_mem_malloc(nIeLen + 2);
-			if (NULL == session_ptr->pWapiRspIE)
-				return QDF_STATUS_E_NOMEM;
-			session_ptr->pWapiRspIE[0] = DOT11F_EID_WAPI;
-			session_ptr->pWapiRspIE[1] = (uint8_t) nIeLen;
-			pIeBuf = session_ptr->pWapiRspIE + 2;
-			/* copy upto akm_suite_count */
-			qdf_mem_copy(pIeBuf, &wapi_ie->version, 2);
-			pIeBuf += 4;
-			if (wapi_ie->akm_suite_count) {
-				/* copy akm_suites */
-				qdf_mem_copy(pIeBuf,
-					wapi_ie->akm_suites,
-					wapi_ie->akm_suite_count * 4);
-				pIeBuf += wapi_ie->akm_suite_count * 4;
-			}
-			qdf_mem_copy(pIeBuf,
-				&wapi_ie->unicast_cipher_suite_count, 2);
-			pIeBuf += 2;
-			if (wapi_ie->unicast_cipher_suite_count) {
-				uint16_t suite_size =
-					wapi_ie->unicast_cipher_suite_count * 4;
-				/* copy pwise_cipher_suites */
-				qdf_mem_copy(pIeBuf,
-					wapi_ie->unicast_cipher_suites,
-					suite_size);
-				pIeBuf += suite_size;
-			}
-			/* gp_cipher_suite */
-			qdf_mem_copy(pIeBuf,
-				wapi_ie->multicast_cipher_suite, 4);
-			pIeBuf += 4;
-			/* preauth + reserved */
-			qdf_mem_copy(pIeBuf,
-				wapi_ie->multicast_cipher_suite + 4, 2);
-			pIeBuf += 2;
-			if (wapi_ie->bkid_count) {
-				/* bkid_count */
-				qdf_mem_copy(pIeBuf, &wapi_ie->bkid_count, 2);
-				pIeBuf += 2;
-				/* copy akm_suites */
-				qdf_mem_copy(pIeBuf, wapi_ie->bkid,
-					wapi_ie->bkid_count * 4);
-				pIeBuf += wapi_ie->bkid_count * 4;
-			}
-			session_ptr->nWapiRspIeLength = nIeLen + 2;
-		}
-	}
-#endif /* FEATURE_WLAN_WAPI */
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS csr_roam_save_security_rsp_ie(tpAniSirGlobal pMac,
-						uint32_t sessionId,
-						eCsrAuthType authType,
-						tSirBssDescription *pSirBssDesc,
-						tDot11fBeaconIEs *pIes)
-{
-	QDF_STATUS status = QDF_STATUS_SUCCESS;
-	struct csr_roam_session *pSession = CSR_GET_SESSION(pMac, sessionId);
-	tDot11fBeaconIEs *pIesLocal = pIes;
-
-	if (!pSession) {
-		sme_err("session %d not found", sessionId);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	sme_debug("authType %d session %d", authType, sessionId);
-	if ((eCSR_AUTH_TYPE_WPA == authType) ||
-		(eCSR_AUTH_TYPE_WPA_PSK == authType) ||
-		(eCSR_AUTH_TYPE_RSN == authType) ||
-		(eCSR_AUTH_TYPE_RSN_PSK == authType)
-		|| (eCSR_AUTH_TYPE_FT_RSN == authType) ||
-		(eCSR_AUTH_TYPE_FT_RSN_PSK == authType)
-		|| (eCSR_AUTH_TYPE_FT_SAE == authType)
-		|| (eCSR_AUTH_TYPE_FT_SUITEB_EAP_SHA384 == authType)
-		|| (eCSR_AUTH_TYPE_SUITEB_EAP_SHA256 == authType)
-		|| (eCSR_AUTH_TYPE_SUITEB_EAP_SHA384 == authType)
-#ifdef FEATURE_WLAN_WAPI
-		|| (eCSR_AUTH_TYPE_WAPI_WAI_PSK == authType) ||
-		(eCSR_AUTH_TYPE_WAPI_WAI_CERTIFICATE == authType)
-#endif /* FEATURE_WLAN_WAPI */
-#ifdef WLAN_FEATURE_11W
-		|| (eCSR_AUTH_TYPE_RSN_PSK_SHA256 == authType) ||
-		(eCSR_AUTH_TYPE_RSN_8021X_SHA256 == authType)
-#endif /* FEATURE_WLAN_WAPI */
-		|| (eCSR_AUTH_TYPE_SAE == authType)) {
-		if (!pIesLocal && !QDF_IS_STATUS_SUCCESS
-				(csr_get_parsed_bss_description_ies(pMac,
-				pSirBssDesc, &pIesLocal)))
-			sme_err(" cannot parse IEs");
-		if (pIesLocal) {
-			status = csr_roam_save_params(pMac, pSession, authType,
-					pIes, pIesLocal);
-			if (!pIes)
-				/* locally allocated */
-				qdf_mem_free(pIesLocal);
-		}
-	}
-	return status;
-}
-
 /* Returns whether the current association is a 11r assoc or not */
 bool csr_roam_is11r_assoc(tpAniSirGlobal pMac, uint8_t sessionId)
 {
@@ -8401,19 +8191,6 @@ static void csr_roam_process_join_res(tpAniSirGlobal mac_ctx,
 
 	conn_profile = &session->connectedProfile;
 	sme_debug("receives association indication");
-	/* always free the memory here */
-	if (session->pWpaRsnRspIE) {
-		session->nWpaRsnRspIeLength = 0;
-		qdf_mem_free(session->pWpaRsnRspIE);
-		session->pWpaRsnRspIE = NULL;
-	}
-#ifdef FEATURE_WLAN_WAPI
-	if (session->pWapiRspIE) {
-		session->nWapiRspIeLength = 0;
-		qdf_mem_free(session->pWapiRspIE);
-		session->pWapiRspIE = NULL;
-	}
-#endif /* FEATURE_WLAN_WAPI */
 #ifdef FEATURE_WLAN_BTAMP_UT_RF
 	session->maxRetryCount = 0;
 	csr_roam_stop_join_retry_timer(mac_ctx, session_id);
@@ -8469,9 +8246,6 @@ static void csr_roam_process_join_res(tpAniSirGlobal mac_ctx,
 		roam_info->staId = STA_INVALID_IDX;
 		csr_roam_save_connected_information(mac_ctx, session_id,
 			profile, bss_desc, ies_ptr);
-		/* Save WPA/RSN IE */
-		csr_roam_save_security_rsp_ie(mac_ctx, session_id,
-			profile->negotiatedAuthType, bss_desc, ies_ptr);
 #ifdef FEATURE_WLAN_ESE
 		roam_info->isESEAssoc = conn_profile->isESEAssoc;
 #endif
@@ -10399,6 +10173,16 @@ bool is_disconnect_pending(tpAniSirGlobal pmac,
 	return disconnect_cmd_exist;
 }
 
+static void
+csr_get_sae_assoc_retry_count(tpAniSirGlobal pMac, uint8_t *retry_count)
+{
+	*retry_count =
+		WLAN_GET_BITS(pMac->sae_connect_retries,
+			      ASSOC_INDEX * NUM_RETRY_BITS, NUM_RETRY_BITS);
+
+	*retry_count = QDF_MIN(MAX_RETRIES, *retry_count);
+}
+
 static void csr_roam_join_rsp_processor(tpAniSirGlobal pMac,
 					tSirSmeJoinRsp *pSmeJoinRsp)
 {
@@ -10408,10 +10192,15 @@ static void csr_roam_join_rsp_processor(tpAniSirGlobal pMac,
 	struct csr_roam_session *session_ptr;
 	struct csr_roam_connectedinfo *prev_connect_info;
 	tPmkidCacheInfo pmksa_entry;
+	struct csr_roam_profile *profile = NULL;
+	bool attempt_next_bss = true;
 	uint32_t len = 0, roamId = 0, reason_code = 0;
 	bool is_dis_pending;
 	bool use_same_bss = false;
 	bool retry_same_bss = false;
+	uint8_t max_retry_count = 1;
+	eCsrAuthType auth_type = eCSR_AUTH_TYPE_NONE;
+	tPmkidCacheInfo pmk_cache;
 
 	if (!pSmeJoinRsp) {
 		sme_err("Sme Join Response is NULL");
@@ -10477,14 +10266,28 @@ static void csr_roam_join_rsp_processor(tpAniSirGlobal pMac,
 	/* The head of the active list is the request we sent
 	 * Try to get back the same profile and roam again
 	 */
-	if (pCommand)
+	if (pCommand) {
 		roamId = pCommand->u.roamCmd.roamId;
+		profile = &pCommand->u.roamCmd.roamProfile;
+		auth_type = profile->AuthType.authType[0];
+	}
+
 	reason_code = pSmeJoinRsp->protStatusCode;
 	session_ptr->joinFailStatusCode.reasonCode = reason_code;
 	session_ptr->joinFailStatusCode.statusCode = pSmeJoinRsp->statusCode;
 	sme_warn("SmeJoinReq failed with status_code= 0x%08X [%d] reason:%d",
 		 pSmeJoinRsp->statusCode, pSmeJoinRsp->statusCode,
 		 reason_code);
+
+	is_dis_pending = is_disconnect_pending(pMac, session_ptr->sessionId);
+	/*
+	 * if userspace has issued disconnection or we have reached mac tries,
+	 * driver should not continue for next connection.
+	 */
+	if (is_dis_pending ||
+	    session_ptr->join_bssid_count >= CSR_MAX_BSSID_COUNT)
+		attempt_next_bss = false;
+
 	/*
 	 * Delete the PMKID of the BSSID for which the assoc reject is
 	 * received from the AP due to invalid PMKID reason.
@@ -10503,25 +10306,51 @@ static void csr_roam_join_rsp_processor(tpAniSirGlobal pMac,
 					      &pmksa_entry, false);
 		retry_same_bss = true;
 	}
+
 	if (pSmeJoinRsp->messageType == eWNI_SME_JOIN_RSP &&
 	    pSmeJoinRsp->statusCode == eSIR_SME_ASSOC_TIMEOUT_RESULT_CODE &&
-	    mlme_get_reconn_after_assoc_timeout_flag(pMac->psoc,
-						     pSmeJoinRsp->sessionId))
+	    (mlme_get_reconn_after_assoc_timeout_flag(pMac->psoc,
+						     pSmeJoinRsp->sessionId) ||
+	    (auth_type == eCSR_AUTH_TYPE_SAE ||
+	    auth_type == eCSR_AUTH_TYPE_FT_SAE))) {
 		retry_same_bss = true;
-	if (retry_same_bss && pCommand && pCommand->u.roamCmd.pRoamBssEntry) {
+		if (auth_type == eCSR_AUTH_TYPE_SAE ||
+		    auth_type == eCSR_AUTH_TYPE_FT_SAE)
+			csr_get_sae_assoc_retry_count(pMac,
+						      &max_retry_count);
+	}
+
+	if (attempt_next_bss && retry_same_bss &&
+	    pCommand && pCommand->u.roamCmd.pRoamBssEntry) {
 		struct tag_csrscan_result *scan_result;
 
 		scan_result =
 			GET_BASE_ADDR(pCommand->u.roamCmd.pRoamBssEntry,
 				      struct tag_csrscan_result, Link);
 		/* Retry with same BSSID without PMKID */
-		if (!scan_result->retry_count) {
-			sme_info("Retry once with same BSSID, status %d reason %d",
-				 pSmeJoinRsp->statusCode, reason_code);
-			scan_result->retry_count = 1;
+		if (scan_result->retry_count < max_retry_count) {
+			sme_info("Retry once with same BSSID, status %d reason %d, auth_type %d retry count %d max count %d",
+				 pSmeJoinRsp->statusCode, reason_code,
+				 auth_type, scan_result->retry_count,
+				 max_retry_count);
+			scan_result->retry_count++;
 			use_same_bss = true;
 		}
 	}
+
+	/*
+	 * If connection fails with Single PMK bssid, clear this pmk
+	 * entry, Flush in case if we are not trying again with same AP
+	 */
+	if (pCommand) {
+		qdf_mem_copy(&pmk_cache.BSSID.bytes,
+			     &pCommand->u.roamCmd.pLastRoamBss->bssId,
+			     sizeof(pmk_cache.BSSID.bytes));
+		if (!use_same_bss && pCommand->u.roamCmd.pLastRoamBss)
+		    csr_clear_sae_single_pmk(pMac, pSmeJoinRsp->sessionId,
+					     &pmk_cache);
+	}
+
 	/* If Join fails while Handoff is in progress, indicate
 	 * disassociated event to supplicant to reconnect
 	 */
@@ -10536,13 +10365,7 @@ static void csr_roam_join_rsp_processor(tpAniSirGlobal pMac,
 						   QDF_STATUS_E_FAILURE);
 	}
 
-	/*
-	 * if userspace has issued disconnection, driver should not continue
-	 * connecting
-	 */
-	is_dis_pending = is_disconnect_pending(pMac, session_ptr->sessionId);
-	if (pCommand && !is_dis_pending &&
-	    session_ptr->join_bssid_count < CSR_MAX_BSSID_COUNT) {
+	if (pCommand && attempt_next_bss) {
 		csr_roam(pMac, pCommand, use_same_bss);
 		return;
 	}
@@ -13107,7 +12930,7 @@ csr_roam_chk_lnk_swt_ch_ind(tpAniSirGlobal mac_ctx, tSirSmeRsp *msg_ptr)
 	tpSirSmeSwitchChannelInd pSwitchChnInd;
 	struct csr_roam_info *roam_info;
 	tSirMacDsParamSetIE *ds_params_ie;
-	tDot11fIEHTInfo *ht_info_ie;
+	struct ieee80211_ie_htinfo *ht_info_ie;
 
 	/* in case of STA, the SWITCH_CHANNEL originates from its AP */
 	sme_debug("eWNI_SME_SWITCH_CHL_IND from SME");
@@ -13145,14 +12968,14 @@ csr_roam_chk_lnk_swt_ch_ind(tpAniSirGlobal mac_ctx, tSirSmeRsp *msg_ptr)
 			ds_params_ie->channelNumber =
 				(uint8_t)pSwitchChnInd->newChannelId;
 
-		ht_info_ie = (tDot11fIEHTInfo *)wlan_get_ie_ptr_from_eid(
-				DOT11F_EID_HTINFO,
-				(uint8_t *)session->pConnectBssDesc->ieFields,
-				ie_len);
+		ht_info_ie = (struct ieee80211_ie_htinfo *)wlan_get_ie_ptr_from_eid
+				(DOT11F_EID_HTINFO,
+				 (uint8_t *)session->pConnectBssDesc->ieFields,
+				 ie_len);
 		if (ht_info_ie) {
-			ht_info_ie->primaryChannel =
+			ht_info_ie->hi_ie.hi_ctrlchannel =
 				(uint8_t)pSwitchChnInd->newChannelId;
-			ht_info_ie->secondaryChannelOffset =
+			ht_info_ie->hi_ie.hi_extchoff =
 				pSwitchChnInd->chan_params.sec_ch_offset;
 		}
 	}
@@ -16144,6 +15967,8 @@ static void csr_update_pmk_cache(struct csr_roam_session *session,
 	}
 
 	session->NumPmkidCache++;
+	sme_debug("PMKSA entry added at index = %d, cache count = %d",
+		  cache_idx, session->NumPmkidCache);
 	if (session->NumPmkidCache > CSR_MAX_PMKID_ALLOWED) {
 		sme_debug("setting num pmkid cache to %d",
 			CSR_MAX_PMKID_ALLOWED);
@@ -16158,7 +15983,8 @@ csr_roam_set_pmkid_cache(tpAniSirGlobal pMac, uint32_t sessionId,
 {
 	struct csr_roam_session *pSession = CSR_GET_SESSION(pMac, sessionId);
 	uint32_t i = 0;
-	tPmkidCacheInfo *pmksa;
+	uint32_t pmkid_index;
+	tPmkidCacheInfo *pmksa, *pmkid_cache;
 	eCsrAuthType akm_type;
 
 	if (!pSession) {
@@ -16185,12 +16011,35 @@ csr_roam_set_pmkid_cache(tpAniSirGlobal pMac, uint32_t sessionId,
 		return QDF_STATUS_SUCCESS;
 	}
 
+	pmkid_cache = qdf_mem_malloc(sizeof(*pmkid_cache));
+	if (!pmkid_cache)
+		return QDF_STATUS_E_NOMEM;
+
 	for (i = 0; i < numItems; i++) {
 		pmksa = &pPMKIDCache[i];
 
+		if (!pmksa->pmk_len || pmksa->pmk_len > CSR_RSN_MAX_PMK_LEN) {
+			sme_err("Invalid PMK length");
+			qdf_mem_zero(pmkid_cache, sizeof(*pmkid_cache));
+			qdf_mem_free(pmkid_cache);
+			return QDF_STATUS_E_FAILURE;
+		}
+		qdf_copy_macaddr(&pmkid_cache->BSSID, &pmksa->BSSID);
+		sme_debug("Trying to find PMKID for " QDF_MAC_ADDR_STR,
+			  QDF_MAC_ADDR_ARRAY(pmkid_cache->BSSID.bytes));
+		if (csr_lookup_pmkid_using_bssid(pMac, pSession, pmkid_cache,
+						 &pmkid_index) &&
+		    (!qdf_mem_cmp(pmkid_cache->pmk,
+				  pmksa->pmk, pmksa->pmk_len))) {
+			sme_debug("PMKSA entry found with same PMK at index %d",
+				  pmkid_index);
+			qdf_mem_zero(pmkid_cache, sizeof(*pmkid_cache));
+			qdf_mem_free(pmkid_cache);
+			return QDF_STATUS_E_EXISTS;
+		}
+
 		/* Delete the entry if present */
-		csr_roam_del_pmkid_from_cache(pMac, sessionId,
-				pmksa, false);
+		csr_roam_del_pmkid_from_cache(pMac, sessionId, pmksa, false);
 		/* Update new entry */
 		csr_update_pmk_cache(pSession, pmksa);
 
@@ -16206,6 +16055,8 @@ csr_roam_set_pmkid_cache(tpAniSirGlobal pMac, uint32_t sessionId,
 						sessionId, pmksa->cache_id);
 		}
 	}
+	qdf_mem_zero(pmkid_cache, sizeof(*pmkid_cache));
+	qdf_mem_free(pmkid_cache);
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -16521,32 +16372,6 @@ QDF_STATUS csr_roam_get_wpa_rsn_req_ie(tpAniSirGlobal pMac, uint32_t sessionId,
 	return status;
 }
 
-QDF_STATUS csr_roam_get_wpa_rsn_rsp_ie(tpAniSirGlobal pMac, uint32_t sessionId,
-				       uint32_t *pLen, uint8_t *pBuf)
-{
-	QDF_STATUS status = QDF_STATUS_E_INVAL;
-	uint32_t len;
-	struct csr_roam_session *pSession = CSR_GET_SESSION(pMac, sessionId);
-
-	if (!pSession) {
-		sme_err("session %d not found", sessionId);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (pLen) {
-		len = *pLen;
-		*pLen = pSession->nWpaRsnRspIeLength;
-		if (pBuf) {
-			if (len >= pSession->nWpaRsnRspIeLength) {
-				qdf_mem_copy(pBuf, pSession->pWpaRsnRspIE,
-					     pSession->nWpaRsnRspIeLength);
-				status = QDF_STATUS_SUCCESS;
-			}
-		}
-	}
-	return status;
-}
-
 #ifdef FEATURE_WLAN_WAPI
 QDF_STATUS csr_roam_get_wapi_req_ie(tpAniSirGlobal pMac, uint32_t sessionId,
 				    uint32_t *pLen, uint8_t *pBuf)
@@ -16573,33 +16398,8 @@ QDF_STATUS csr_roam_get_wapi_req_ie(tpAniSirGlobal pMac, uint32_t sessionId,
 	}
 	return status;
 }
-
-QDF_STATUS csr_roam_get_wapi_rsp_ie(tpAniSirGlobal pMac, uint32_t sessionId,
-				    uint32_t *pLen, uint8_t *pBuf)
-{
-	QDF_STATUS status = QDF_STATUS_E_INVAL;
-	uint32_t len;
-	struct csr_roam_session *pSession = CSR_GET_SESSION(pMac, sessionId);
-
-	if (!pSession) {
-		sme_err("session %d not found", sessionId);
-		return QDF_STATUS_E_FAILURE;
-	}
-
-	if (pLen) {
-		len = *pLen;
-		*pLen = pSession->nWapiRspIeLength;
-		if (pBuf) {
-			if (len >= pSession->nWapiRspIeLength) {
-				qdf_mem_copy(pBuf, pSession->pWapiRspIE,
-					     pSession->nWapiRspIeLength);
-				status = QDF_STATUS_SUCCESS;
-			}
-		}
-	}
-	return status;
-}
 #endif /* FEATURE_WLAN_WAPI */
+
 eRoamCmdStatus csr_get_roam_complete_status(tpAniSirGlobal pMac,
 						uint32_t sessionId)
 {
@@ -19355,22 +19155,12 @@ static void csr_init_session(tpAniSirGlobal pMac, uint32_t sessionId)
 		pSession->pWpaRsnReqIE = NULL;
 	}
 	pSession->nWpaRsnReqIeLength = 0;
-	if (pSession->pWpaRsnRspIE) {
-		qdf_mem_free(pSession->pWpaRsnRspIE);
-		pSession->pWpaRsnRspIE = NULL;
-	}
-	pSession->nWpaRsnRspIeLength = 0;
 #ifdef FEATURE_WLAN_WAPI
 	if (pSession->pWapiReqIE) {
 		qdf_mem_free(pSession->pWapiReqIE);
 		pSession->pWapiReqIE = NULL;
 	}
 	pSession->nWapiReqIeLength = 0;
-	if (pSession->pWapiRspIE) {
-		qdf_mem_free(pSession->pWapiRspIE);
-		pSession->pWapiRspIE = NULL;
-	}
-	pSession->nWapiRspIeLength = 0;
 #endif /* FEATURE_WLAN_WAPI */
 	if (pSession->pAddIEScan) {
 		qdf_mem_free(pSession->pAddIEScan);
@@ -24342,9 +24132,6 @@ static QDF_STATUS csr_process_roam_sync_callback(tpAniSirGlobal mac_ctx,
 	/* Add new mlme info to new BSSID after upting connectedProfile */
 	csr_update_scan_entry_associnfo(mac_ctx, session,
 					SCAN_ENTRY_CON_STATE_ASSOC);
-	csr_roam_save_security_rsp_ie(mac_ctx, session_id,
-			session->pCurRoamProfile->negotiatedAuthType,
-			bss_desc, ies_local);
 
 #ifdef FEATURE_WLAN_ESE
 	roam_info->isESEAssoc = conn_profile->isESEAssoc;

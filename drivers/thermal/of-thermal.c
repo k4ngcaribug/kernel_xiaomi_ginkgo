@@ -153,7 +153,7 @@ static int virt_sensor_read_temp(void *data, int *val)
 	for (idx = 0; idx < sens->num_sensors; idx++) {
 		int sens_temp = 0;
 
-		ret = thermal_zone_get_temp(sens->tz[idx], &sens_temp);
+		ret = thermal_zone_get_temp_nolock(sens->tz[idx], &sens_temp);
 		if (ret) {
 			pr_err("virt zone: sensor[%s] read error:%d\n",
 				sens->tz[idx]->type, ret);
@@ -1368,7 +1368,7 @@ __init *thermal_of_build_thermal_zone(struct device_node *np)
 	if (tz->ntrips == 0) /* must have at least one child */
 		goto finish;
 
-	tz->trips = kcalloc(tz->ntrips, sizeof(*tz->trips), GFP_KERNEL);
+	tz->trips = kzalloc(tz->ntrips * sizeof(*tz->trips), GFP_KERNEL);
 	if (!tz->trips) {
 		ret = -ENOMEM;
 		goto free_tz;
@@ -1394,7 +1394,7 @@ __init *thermal_of_build_thermal_zone(struct device_node *np)
 	if (tz->num_tbps == 0)
 		goto finish;
 
-	tz->tbps = kcalloc(tz->num_tbps, sizeof(*tz->tbps), GFP_KERNEL);
+	tz->tbps = kzalloc(tz->num_tbps * sizeof(*tz->tbps), GFP_KERNEL);
 	if (!tz->tbps) {
 		ret = -ENOMEM;
 		goto free_trips;

@@ -19,7 +19,7 @@
 #define debug_log(fmt, args...) \
 	printk(KERN_INFO "ide: " fmt, ## args)
 #else
-#define debug_log(fmt, args...) do {} while (0)
+#define debug_log(fmt, args...) ((void)0)
 #endif
 
 #define ATAPI_MIN_CDB_BYTES	12
@@ -591,7 +591,7 @@ static int ide_delayed_transfer_pc(ide_drive_t *drive)
 
 static ide_startstop_t ide_transfer_pc(ide_drive_t *drive)
 {
-	struct ide_atapi_pc *uninitialized_var(pc);
+	struct ide_atapi_pc *pc;
 	ide_hwif_t *hwif = drive->hwif;
 	struct request *rq = hwif->rq;
 	ide_expiry_t *expiry;

@@ -55,7 +55,7 @@ do {							\
 	(attr)->key = &__key;				\
 } while (0)
 #else
-#define sysfs_attr_init(attr) do {} while (0)
+#define sysfs_attr_init(attr) ((void)0)
 #endif
 
 /**
@@ -301,6 +301,11 @@ static inline void sysfs_enable_ns(struct kernfs_node *kn)
 	return kernfs_enable_ns(kn);
 }
 
+__printf(2, 3)
+int sysfs_emit(char *buf, const char *fmt, ...);
+__printf(3, 4)
+int sysfs_emit_at(char *buf, int at, const char *fmt, ...);
+
 #else /* CONFIG_SYSFS */
 
 static inline int sysfs_create_dir_ns(struct kobject *kobj, const void *ns)
@@ -507,6 +512,17 @@ static inline void sysfs_enable_ns(struct kernfs_node *kn)
 {
 }
 
+__printf(2, 3)
+static inline int sysfs_emit(char *buf, const char *fmt, ...)
+{
+	return 0;
+}
+
+__printf(3, 4)
+static inline int sysfs_emit_at(char *buf, int at, const char *fmt, ...)
+{
+	return 0;
+}
 #endif /* CONFIG_SYSFS */
 
 static inline int __must_check sysfs_create_file(struct kobject *kobj,

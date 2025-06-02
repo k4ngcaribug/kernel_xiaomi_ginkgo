@@ -253,6 +253,8 @@ int __init opal_event_init(void)
 		else
 			name = kasprintf(GFP_KERNEL, "opal");
 
+		if (!name)
+			continue;
 		/* Install interrupt handler */
 		rc = request_irq(virq, opal_interrupt, IRQF_TRIGGER_LOW,
 				 name, NULL);
@@ -260,6 +262,7 @@ int __init opal_event_init(void)
 			irq_dispose_mapping(virq);
 			pr_warn("Error %d requesting irq %d (0x%x)\n",
 				 rc, virq, irqs[i]);
+			kfree(name);
 			continue;
 		}
 

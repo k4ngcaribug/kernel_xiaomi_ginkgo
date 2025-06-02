@@ -398,7 +398,10 @@ static struct reset_control *__reset_control_get_internal(
 	if (!rstc)
 		return ERR_PTR(-ENOMEM);
 
-	try_module_get(rcdev->owner);
+	if (!try_module_get(rcdev->owner)) {
+		kfree(rstc);
+		return ERR_PTR(-ENODEV);
+	}
 
 	rstc->rcdev = rcdev;
 	list_add(&rstc->list, &rcdev->reset_control_head);
@@ -425,6 +428,9 @@ static void __reset_control_release(struct kref *kref)
 static void __reset_control_put_internal(struct reset_control *rstc)
 {
 	lockdep_assert_held(&reset_list_mutex);
+
+	if (IS_ERR_OR_NULL(rstc))
+		return;
 
 	kref_put(&rstc->refcnt, __reset_control_release);
 }
@@ -638,7 +644,8 @@ of_reset_control_array_get(struct device_node *np, bool shared, bool optional)
 	if (num < 0)
 		return optional ? NULL : ERR_PTR(num);
 
-	resets = kzalloc(struct_size(resets, rstc, num), GFP_KERNEL);
+	resets = kzalloc(sizeof(*resets) + sizeof(resets->rstc[0]) * num,
+			 GFP_KERNEL);
 	if (!resets)
 		return ERR_PTR(-ENOMEM);
 
