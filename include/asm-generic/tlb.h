@@ -60,6 +60,12 @@ struct mmu_table_batch {
 extern void tlb_table_flush(struct mmu_gather *tlb);
 extern void tlb_remove_table(struct mmu_gather *tlb, void *table);
 
+void tlb_remove_table_sync_one(void);
+
+#else
+
+static inline void tlb_remove_table_sync_one(void) { }
+
 #endif
 
 /*
@@ -117,6 +123,8 @@ void arch_tlb_gather_mmu(struct mmu_gather *tlb,
 void tlb_flush_mmu(struct mmu_gather *tlb);
 void arch_tlb_finish_mmu(struct mmu_gather *tlb,
 			 unsigned long start, unsigned long end, bool force);
+void tlb_flush_pmd_range(struct mmu_gather *tlb, unsigned long address,
+			 unsigned long size);
 extern bool __tlb_remove_page_size(struct mmu_gather *tlb, struct page *page,
 				   int page_size);
 
@@ -224,7 +232,7 @@ static inline void tlb_remove_check_page_size_change(struct mmu_gather *tlb,
  * This is a nop so far, because only x86 needs it.
  */
 #ifndef __tlb_remove_pmd_tlb_entry
-#define __tlb_remove_pmd_tlb_entry(tlb, pmdp, address) do {} while (0)
+#define __tlb_remove_pmd_tlb_entry(tlb, pmdp, address) ((void)0)
 #endif
 
 #define tlb_remove_pmd_tlb_entry(tlb, pmdp, address)			\
@@ -238,7 +246,7 @@ static inline void tlb_remove_check_page_size_change(struct mmu_gather *tlb,
  * invalidation. This is a nop so far, because only x86 needs it.
  */
 #ifndef __tlb_remove_pud_tlb_entry
-#define __tlb_remove_pud_tlb_entry(tlb, pudp, address) do {} while (0)
+#define __tlb_remove_pud_tlb_entry(tlb, pudp, address) ((void)0)
 #endif
 
 #define tlb_remove_pud_tlb_entry(tlb, pudp, address)			\
@@ -293,6 +301,6 @@ static inline void tlb_remove_check_page_size_change(struct mmu_gather *tlb,
 	} while (0)
 #endif
 
-#define tlb_migrate_finish(mm) do {} while (0)
+#define tlb_migrate_finish(mm) ((void)0)
 
 #endif /* _ASM_GENERIC__TLB_H */

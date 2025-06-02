@@ -385,7 +385,6 @@ static int qat_uclo_init_umem_seg(struct icp_qat_fw_loader_handle *handle,
 	return 0;
 }
 
-#define ICP_DH895XCC_PESRAM_BAR_SIZE 0x80000
 static int qat_uclo_init_ae_memory(struct icp_qat_fw_loader_handle *handle,
 				   struct icp_qat_uof_initmem *init_mem)
 {
@@ -1164,9 +1163,8 @@ static int qat_uclo_map_suof(struct icp_qat_fw_loader_handle *handle,
 	suof_handle->img_table.num_simgs = suof_ptr->num_chunks - 1;
 
 	if (suof_handle->img_table.num_simgs != 0) {
-		suof_img_hdr = kcalloc(suof_handle->img_table.num_simgs,
-				       sizeof(img_header),
-				       GFP_KERNEL);
+		suof_img_hdr = kzalloc(suof_handle->img_table.num_simgs *
+				       sizeof(img_header), GFP_KERNEL);
 		if (!suof_img_hdr)
 			return -ENOMEM;
 		suof_handle->img_table.simg_hdr = suof_img_hdr;

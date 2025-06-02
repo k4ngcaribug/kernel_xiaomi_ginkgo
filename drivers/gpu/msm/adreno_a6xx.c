@@ -1,4 +1,4 @@
-/* Copyright (c)2017-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c)2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1505,7 +1505,6 @@ static int a6xx_reset(struct kgsl_device *device, int fault)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	int ret;
-	unsigned long flags = device->pwrctrl.ctrl_flags;
 
 	/* Use the regular reset sequence for No GMU */
 	if (!gmu_core_gpmu_isenabled(device))
@@ -1521,9 +1520,6 @@ static int a6xx_reset(struct kgsl_device *device, int fault)
 	clear_bit(ADRENO_DEVICE_STARTED, &adreno_dev->priv);
 
 	ret = adreno_start(device, 0);
-
-	device->pwrctrl.ctrl_flags = flags;
-
 	if (ret)
 		return ret;
 

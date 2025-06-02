@@ -531,7 +531,7 @@ static struct its_collection *its_build_invall_cmd(struct its_cmd_block *cmd,
 
 	its_fixup_cmd(cmd);
 
-	return NULL;
+	return desc->its_invall_cmd.col;
 }
 
 static struct its_vpe *its_build_vinvall_cmd(struct its_cmd_block *cmd,
@@ -1153,7 +1153,7 @@ static int its_vlpi_map(struct irq_data *d, struct its_cmd_info *info)
 	if (!its_dev->event_map.vm) {
 		struct its_vlpi_map *maps;
 
-		maps = kcalloc(its_dev->event_map.nr_lpis, sizeof(*maps),
+		maps = kzalloc(sizeof(*maps) * its_dev->event_map.nr_lpis,
 			       GFP_KERNEL);
 		if (!maps) {
 			ret = -ENOMEM;
@@ -1337,7 +1337,7 @@ static int __init its_lpi_init(u32 id_bits)
 {
 	lpi_chunks = its_lpi_to_chunk(1UL << id_bits);
 
-	lpi_bitmap = kcalloc(BITS_TO_LONGS(lpi_chunks), sizeof(long),
+	lpi_bitmap = kzalloc(BITS_TO_LONGS(lpi_chunks) * sizeof(long),
 			     GFP_KERNEL);
 	if (!lpi_bitmap) {
 		lpi_chunks = 0;
@@ -1371,8 +1371,7 @@ static unsigned long *its_lpi_alloc_chunks(int nr_irqs, int *base, int *nr_ids)
 	if (!nr_chunks)
 		goto out;
 
-	bitmap = kcalloc(BITS_TO_LONGS(nr_chunks * IRQS_PER_CHUNK),
-			 sizeof(long),
+	bitmap = kzalloc(BITS_TO_LONGS(nr_chunks * IRQS_PER_CHUNK) * sizeof (long),
 			 GFP_ATOMIC);
 	if (!bitmap)
 		goto out;
@@ -1735,7 +1734,7 @@ static int its_alloc_tables(struct its_node *its)
 
 static int its_alloc_collections(struct its_node *its)
 {
-	its->collections = kcalloc(nr_cpu_ids, sizeof(*its->collections),
+	its->collections = kzalloc(nr_cpu_ids * sizeof(*its->collections),
 				   GFP_KERNEL);
 	if (!its->collections)
 		return -ENOMEM;
@@ -2045,10 +2044,10 @@ static struct its_device *its_create_device(struct its_node *its, u32 dev_id,
 	if (alloc_lpis) {
 		lpi_map = its_lpi_alloc_chunks(nvecs, &lpi_base, &nr_lpis);
 		if (lpi_map)
-			col_map = kcalloc(nr_lpis, sizeof(*col_map),
+			col_map = kzalloc(sizeof(*col_map) * nr_lpis,
 					  GFP_KERNEL);
 	} else {
-		col_map = kcalloc(nr_ites, sizeof(*col_map), GFP_KERNEL);
+		col_map = kzalloc(sizeof(*col_map) * nr_ites, GFP_KERNEL);
 		nr_lpis = 0;
 		lpi_base = 0;
 	}
@@ -2693,8 +2692,6 @@ static int its_vpe_irq_domain_alloc(struct irq_domain *domain, unsigned int virq
 	struct page *vprop_page;
 	int base, nr_ids, i, err = 0;
 
-	BUG_ON(!vm);
-
 	bitmap = its_lpi_alloc_chunks(nr_irqs, &base, &nr_ids);
 	if (!bitmap)
 		return -ENOMEM;
@@ -2729,13 +2726,8 @@ static int its_vpe_irq_domain_alloc(struct irq_domain *domain, unsigned int virq
 		set_bit(i, bitmap);
 	}
 
-	if (err) {
-		if (i > 0)
-			its_vpe_irq_domain_free(domain, virq, i - 1);
-
-		its_lpi_free_chunks(bitmap, base, nr_ids);
-		its_free_prop_table(vprop_page);
-	}
+	if (err)
+		its_vpe_irq_domain_free(domain, virq, i);
 
 	return err;
 }
@@ -2897,7 +2889,7 @@ static int its_init_vpe_domain(void)
 	its = list_first_entry(&its_nodes, struct its_node, entry);
 
 	entries = roundup_pow_of_two(nr_cpu_ids);
-	vpe_proxy.vpes = kcalloc(entries, sizeof(*vpe_proxy.vpes),
+	vpe_proxy.vpes = kzalloc(sizeof(*vpe_proxy.vpes) * entries,
 				 GFP_KERNEL);
 	if (!vpe_proxy.vpes) {
 		pr_err("ITS: Can't allocate GICv4 proxy device array\n");
@@ -3217,8 +3209,8 @@ static void __init acpi_table_parse_srat_its(void)
 	if (count <= 0)
 		return;
 
-	its_srat_maps = kmalloc_array(count, sizeof(struct its_srat_map),
-				      GFP_KERNEL);
+	its_srat_maps = kmalloc(count * sizeof(struct its_srat_map),
+				GFP_KERNEL);
 	if (!its_srat_maps) {
 		pr_warn("SRAT: Failed to allocate memory for its_srat_maps!\n");
 		return;

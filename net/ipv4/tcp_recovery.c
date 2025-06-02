@@ -70,14 +70,15 @@ static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 		    scb->sacked & TCPCB_SACKED_ACKED)
 			continue;
 
-		if (tcp_rack_sent_after(tp->rack.mstamp, skb->skb_mstamp,
+		if (tcp_rack_sent_after(tp->rack.mstamp,
+					tcp_skb_timestamp_us(skb),
 					tp->rack.end_seq, scb->end_seq)) {
 			/* Step 3 in draft-cheng-tcpm-rack-00.txt:
 			 * A packet is lost if its elapsed time is beyond
 			 * the recent RTT plus the reordering window.
 			 */
 			u32 elapsed = tcp_stamp_us_delta(tp->tcp_mstamp,
-							 skb->skb_mstamp);
+							 tcp_skb_timestamp_us(skb));
 			s32 remaining = tp->rack.rtt_us + reo_wnd - elapsed;
 
 			if (remaining < 0) {
@@ -102,22 +103,23 @@ static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 	}
 }
 
-void tcp_rack_mark_lost(struct sock *sk)
+bool tcp_rack_mark_lost(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 timeout;
 
 	if (!tp->rack.advanced)
-		return;
+		return false;
 
 	/* Reset the advanced flag to avoid unnecessary queue scanning */
 	tp->rack.advanced = 0;
 	tcp_rack_detect_loss(sk, &timeout);
 	if (timeout) {
-		timeout = usecs_to_jiffies(timeout) + TCP_TIMEOUT_MIN;
+		timeout = usecs_to_jiffies(timeout + TCP_TIMEOUT_MIN_US);
 		inet_csk_reset_xmit_timer(sk, ICSK_TIME_REO_TIMEOUT,
 					  timeout, inet_csk(sk)->icsk_rto);
 	}
+	return !!timeout;
 }
 
 /* Record the most recently (re)sent time among the (s)acked packets

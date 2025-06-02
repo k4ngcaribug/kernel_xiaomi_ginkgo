@@ -412,7 +412,7 @@ static struct beiscsi_hba *beiscsi_hba_alloc(struct pci_dev *pcidev)
 			"beiscsi_hba_alloc - iscsi_host_alloc failed\n");
 		return NULL;
 	}
-	shost->max_id = BE2_MAX_SESSIONS;
+	shost->max_id = BE2_MAX_SESSIONS - 1;
 	shost->max_channel = 0;
 	shost->max_cmd_len = BEISCSI_MAX_CMD_LEN;
 	shost->max_lun = BEISCSI_NUM_MAX_LUN;
@@ -2455,8 +2455,8 @@ static int beiscsi_alloc_mem(struct beiscsi_hba *phba)
 
 	/* Allocate memory for wrb_context */
 	phwi_ctrlr = phba->phwi_ctrlr;
-	phwi_ctrlr->wrb_context = kcalloc(phba->params.cxns_per_ctrl,
-					  sizeof(struct hwi_wrb_context),
+	phwi_ctrlr->wrb_context = kzalloc(sizeof(struct hwi_wrb_context) *
+					  phba->params.cxns_per_ctrl,
 					  GFP_KERNEL);
 	if (!phwi_ctrlr->wrb_context) {
 		kfree(phba->phwi_ctrlr);
@@ -2471,9 +2471,8 @@ static int beiscsi_alloc_mem(struct beiscsi_hba *phba)
 		return -ENOMEM;
 	}
 
-	mem_arr_orig = kmalloc_array(BEISCSI_MAX_FRAGS_INIT,
-				     sizeof(*mem_arr_orig),
-				     GFP_KERNEL);
+	mem_arr_orig = kmalloc(sizeof(*mem_arr_orig) * BEISCSI_MAX_FRAGS_INIT,
+			       GFP_KERNEL);
 	if (!mem_arr_orig) {
 		kfree(phba->init_mem);
 		kfree(phwi_ctrlr->wrb_context);
@@ -2522,8 +2521,8 @@ static int beiscsi_alloc_mem(struct beiscsi_hba *phba)
 		} while (alloc_size);
 		mem_descr->num_elements = j;
 		mem_descr->size_in_bytes = phba->mem_req[i];
-		mem_descr->mem_array = kmalloc_array(j, sizeof(*mem_arr),
-						     GFP_KERNEL);
+		mem_descr->mem_array = kmalloc(sizeof(*mem_arr) * j,
+					       GFP_KERNEL);
 		if (!mem_descr->mem_array)
 			goto free_mem;
 
@@ -2609,8 +2608,8 @@ static int beiscsi_init_wrb_handle(struct beiscsi_hba *phba)
 
 	/* Allocate memory for WRBQ */
 	phwi_ctxt = phwi_ctrlr->phwi_ctxt;
-	phwi_ctxt->be_wrbq = kcalloc(phba->params.cxns_per_ctrl,
-				     sizeof(struct be_queue_info),
+	phwi_ctxt->be_wrbq = kzalloc(sizeof(struct be_queue_info) *
+				     phba->params.cxns_per_ctrl,
 				     GFP_KERNEL);
 	if (!phwi_ctxt->be_wrbq) {
 		beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
@@ -2621,18 +2620,16 @@ static int beiscsi_init_wrb_handle(struct beiscsi_hba *phba)
 	for (index = 0; index < phba->params.cxns_per_ctrl; index++) {
 		pwrb_context = &phwi_ctrlr->wrb_context[index];
 		pwrb_context->pwrb_handle_base =
-				kcalloc(phba->params.wrbs_per_cxn,
-					sizeof(struct wrb_handle *),
-					GFP_KERNEL);
+				kzalloc(sizeof(struct wrb_handle *) *
+					phba->params.wrbs_per_cxn, GFP_KERNEL);
 		if (!pwrb_context->pwrb_handle_base) {
 			beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 				    "BM_%d : Mem Alloc Failed. Failing to load\n");
 			goto init_wrb_hndl_failed;
 		}
 		pwrb_context->pwrb_handle_basestd =
-				kcalloc(phba->params.wrbs_per_cxn,
-					sizeof(struct wrb_handle *),
-					GFP_KERNEL);
+				kzalloc(sizeof(struct wrb_handle *) *
+					phba->params.wrbs_per_cxn, GFP_KERNEL);
 		if (!pwrb_context->pwrb_handle_basestd) {
 			beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 				    "BM_%d : Mem Alloc Failed. Failing to load\n");
@@ -2690,6 +2687,7 @@ init_wrb_hndl_failed:
 		kfree(pwrb_context->pwrb_handle_base);
 		kfree(pwrb_context->pwrb_handle_basestd);
 	}
+	kfree(phwi_ctxt->be_wrbq);
 	return -ENOMEM;
 }
 
@@ -3016,7 +3014,6 @@ static int beiscsi_create_eqs(struct beiscsi_hba *phba,
 			goto create_eq_error;
 		}
 
-		mem->dma = paddr;
 		mem->va = eq_vaddress;
 		ret = be_fill_queue(eq, phba->params.num_eq_entries,
 				    sizeof(struct be_eq_entry), eq_vaddress);
@@ -3026,6 +3023,7 @@ static int beiscsi_create_eqs(struct beiscsi_hba *phba,
 			goto create_eq_error;
 		}
 
+		mem->dma = paddr;
 		ret = beiscsi_cmd_eq_create(&phba->ctrl, eq,
 					    phwi_context->cur_eqd);
 		if (ret) {
@@ -3082,7 +3080,6 @@ static int beiscsi_create_cqs(struct beiscsi_hba *phba,
 			goto create_cq_error;
 		}
 
-		mem->dma = paddr;
 		ret = be_fill_queue(cq, phba->params.num_cq_entries,
 				    sizeof(struct sol_cqe), cq_vaddress);
 		if (ret) {
@@ -3092,6 +3089,7 @@ static int beiscsi_create_cqs(struct beiscsi_hba *phba,
 			goto create_cq_error;
 		}
 
+		mem->dma = paddr;
 		ret = beiscsi_cmd_cq_create(&phba->ctrl, cq, eq, false,
 					    false, 0);
 		if (ret) {
@@ -3344,9 +3342,8 @@ beiscsi_create_wrb_rings(struct beiscsi_hba *phba,
 	idx = 0;
 	mem_descr = phba->init_mem;
 	mem_descr += HWI_MEM_WRB;
-	pwrb_arr = kmalloc_array(phba->params.cxns_per_ctrl,
-				 sizeof(*pwrb_arr),
-				 GFP_KERNEL);
+	pwrb_arr = kmalloc(sizeof(*pwrb_arr) * phba->params.cxns_per_ctrl,
+			   GFP_KERNEL);
 	if (!pwrb_arr) {
 		beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 			    "BM_%d : Memory alloc failed in create wrb ring.\n");
@@ -3888,16 +3885,17 @@ static int beiscsi_init_sgl_handle(struct beiscsi_hba *phba)
 	mem_descr_sglh = phba->init_mem;
 	mem_descr_sglh += HWI_MEM_SGLH;
 	if (1 == mem_descr_sglh->num_elements) {
-		phba->io_sgl_hndl_base = kcalloc(phba->params.ios_per_ctrl,
-						 sizeof(struct sgl_handle *),
+		phba->io_sgl_hndl_base = kzalloc(sizeof(struct sgl_handle *) *
+						 phba->params.ios_per_ctrl,
 						 GFP_KERNEL);
 		if (!phba->io_sgl_hndl_base) {
 			beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 				    "BM_%d : Mem Alloc Failed. Failing to load\n");
 			return -ENOMEM;
 		}
-		phba->eh_sgl_hndl_base = kcalloc(phba->params.icds_per_ctrl - phba->params.ios_per_ctrl,
-						 sizeof(struct sgl_handle *),
+		phba->eh_sgl_hndl_base = kzalloc(sizeof(struct sgl_handle *) *
+						 (phba->params.icds_per_ctrl -
+						 phba->params.ios_per_ctrl),
 						 GFP_KERNEL);
 		if (!phba->eh_sgl_hndl_base) {
 			kfree(phba->io_sgl_hndl_base);
@@ -4025,9 +4023,8 @@ static int hba_setup_cid_tbls(struct beiscsi_hba *phba)
 			phba->cid_array_info[ulp_num] = ptr_cid_info;
 		}
 	}
-	phba->ep_array = kcalloc(phba->params.cxns_per_ctrl,
-				 sizeof(struct iscsi_endpoint *),
-				 GFP_KERNEL);
+	phba->ep_array = kzalloc(sizeof(struct iscsi_endpoint *) *
+				 phba->params.cxns_per_ctrl, GFP_KERNEL);
 	if (!phba->ep_array) {
 		beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 			    "BM_%d : Failed to allocate memory in "
@@ -4037,9 +4034,8 @@ static int hba_setup_cid_tbls(struct beiscsi_hba *phba)
 		goto free_memory;
 	}
 
-	phba->conn_table = kcalloc(phba->params.cxns_per_ctrl,
-				   sizeof(struct beiscsi_conn *),
-				   GFP_KERNEL);
+	phba->conn_table = kzalloc(sizeof(struct beiscsi_conn *) *
+				   phba->params.cxns_per_ctrl, GFP_KERNEL);
 	if (!phba->conn_table) {
 		beiscsi_log(phba, KERN_ERR, BEISCSI_LOG_INIT,
 			    "BM_%d : Failed to allocate memory in"
@@ -5308,7 +5304,7 @@ static int beiscsi_enable_port(struct beiscsi_hba *phba)
 	/* Re-enable UER. If different TPE occurs then it is recoverable. */
 	beiscsi_set_uer_feature(phba);
 
-	phba->shost->max_id = phba->params.cxns_per_ctrl;
+	phba->shost->max_id = phba->params.cxns_per_ctrl - 1;
 	phba->shost->can_queue = phba->params.ios_per_ctrl;
 	ret = beiscsi_init_port(phba);
 	if (ret < 0) {
@@ -5742,6 +5738,7 @@ hba_free:
 	pci_disable_msix(phba->pcidev);
 	pci_dev_put(phba->pcidev);
 	iscsi_host_free(phba->shost);
+	pci_disable_pcie_error_reporting(pcidev);
 	pci_set_drvdata(pcidev, NULL);
 disable_pci:
 	pci_release_regions(pcidev);

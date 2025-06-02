@@ -1268,8 +1268,8 @@ static int st_open(struct inode *inode, struct file *filp)
 	spin_lock(&st_use_lock);
 	if (STp->in_use) {
 		spin_unlock(&st_use_lock);
-		scsi_tape_put(STp);
 		DEBC_printk(STp, "Device already in use.\n");
+		scsi_tape_put(STp);
 		return (-EBUSY);
 	}
 
@@ -3888,7 +3888,7 @@ static struct st_buffer *new_tape_buffer(int need_dma, int max_sg)
 	tb->dma = need_dma;
 	tb->buffer_size = 0;
 
-	tb->reserved_pages = kcalloc(max_sg, sizeof(struct page *),
+	tb->reserved_pages = kzalloc(max_sg * sizeof(struct page *),
 				     GFP_ATOMIC);
 	if (!tb->reserved_pages) {
 		kfree(tb);
@@ -4915,7 +4915,7 @@ static int sgl_map_user_pages(struct st_buffer *STbp,
 	if (count == 0)
 		return 0;
 
-	if ((pages = kmalloc_array(max_pages, sizeof(*pages), GFP_KERNEL)) == NULL)
+	if ((pages = kmalloc(max_pages * sizeof(*pages), GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 
         /* Try to fault in all of the necessary pages */

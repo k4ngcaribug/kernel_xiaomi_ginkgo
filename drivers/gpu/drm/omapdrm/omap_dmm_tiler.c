@@ -751,6 +751,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 					   &omap_dmm->refill_pa, GFP_KERNEL);
 	if (!omap_dmm->refill_va) {
 		dev_err(&dev->dev, "could not allocate refill memory\n");
+		ret = -ENOMEM;
 		goto fail;
 	}
 
@@ -939,8 +940,8 @@ int tiler_map_show(struct seq_file *s, void *arg)
 	h_adj = omap_dmm->container_height / ydiv;
 	w_adj = omap_dmm->container_width / xdiv;
 
-	map = kmalloc_array(h_adj, sizeof(*map), GFP_KERNEL);
-	global_map = kmalloc_array(w_adj + 1, h_adj, GFP_KERNEL);
+	map = kmalloc(h_adj * sizeof(*map), GFP_KERNEL);
+	global_map = kmalloc((w_adj + 1) * h_adj, GFP_KERNEL);
 
 	if (!map || !global_map)
 		goto error;

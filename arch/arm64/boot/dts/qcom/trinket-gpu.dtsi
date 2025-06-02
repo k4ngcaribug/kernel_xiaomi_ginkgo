@@ -121,8 +121,8 @@
 		vdd-supply = <&gpu_gx_gdsc>;
 
 		/* CPU latency parameter */
-		qcom,pm-qos-active-latency = <422>;
-		qcom,pm-qos-wakeup-latency = <422>;
+		qcom,pm-qos-active-latency = <40>;
+		qcom,pm-qos-wakeup-latency = <40>;
 
 		/* Enable context aware freq. scaling */
 		qcom,enable-ca-jump;
@@ -180,7 +180,7 @@
 				reg = <0>;
 				qcom,gpu-freq = <950000000>;
 				qcom,bus-freq = <11>;
-				qcom,bus-min = <10>;
+				qcom,bus-min = <11>;
 				qcom,bus-max = <11>;
 			};
 
@@ -189,7 +189,7 @@
 				reg = <1>;
 				qcom,gpu-freq = <900000000>;
 				qcom,bus-freq = <11>;
-				qcom,bus-min = <9>;
+				qcom,bus-min = <10>;
 				qcom,bus-max = <11>;
 			};
 
@@ -225,7 +225,7 @@
 				reg = <5>;
 				qcom,gpu-freq = <465000000>;
 				qcom,bus-freq = <7>;
-				qcom,bus-min = <5>;
+				qcom,bus-min = <6>;
 				qcom,bus-max = <8>;
 			};
 
@@ -233,9 +233,9 @@
 			qcom,gpu-pwrlevel@6 {
 				reg = <6>;
 				qcom,gpu-freq = <320000000>;
-				qcom,bus-freq = <4>;
-				qcom,bus-min = <3>;
-				qcom,bus-max = <5>;
+				qcom,bus-freq = <6>;
+				qcom,bus-min = <5>;
+				qcom,bus-max = <7>;
 			};
 
 			/* XO */

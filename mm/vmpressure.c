@@ -37,13 +37,9 @@ static const unsigned int vmpressure_level_med = 60;
 static const unsigned int vmpressure_level_critical = 95;
 
 static unsigned long vmpressure_scale_max = 100;
-module_param_named(vmpressure_scale_max, vmpressure_scale_max,
-			ulong, 0644);
 
 /* vmpressure values >= this will be scaled based on allocstalls */
 static unsigned long allocstall_threshold = 70;
-module_param_named(allocstall_threshold, allocstall_threshold,
-			ulong, 0644);
 
 static struct vmpressure global_vmpressure;
 static BLOCKING_NOTIFIER_HEAD(vmpressure_notifier);
@@ -356,8 +352,8 @@ static void vmpressure_global(gfp_t gfp, unsigned long scanned, bool critical,
 	if (critical)
 		scanned = calculate_vmpressure_win();
 
+	spin_lock(&vmpr->sr_lock);
 	if (scanned) {
-		spin_lock(&vmpr->sr_lock);
 		vmpr->scanned += scanned;
 		vmpr->reclaimed += reclaimed;
 
@@ -367,13 +363,12 @@ static void vmpressure_global(gfp_t gfp, unsigned long scanned, bool critical,
 		stall = vmpr->stall;
 		scanned = vmpr->scanned;
 		reclaimed = vmpr->reclaimed;
-		spin_unlock(&vmpr->sr_lock);
 
-		if (!critical && scanned < calculate_vmpressure_win())
+		if (!critical && scanned < calculate_vmpressure_win()) {
+			spin_unlock(&vmpr->sr_lock);
 			return;
+		}
 	}
-
-	spin_lock(&vmpr->sr_lock);
 	vmpr->scanned = 0;
 	vmpr->reclaimed = 0;
 	vmpr->stall = 0;
@@ -440,8 +435,11 @@ void vmpressure(gfp_t gfp, struct mem_cgroup *memcg, bool tree,
  *
  * This function does not return any value.
  */
-void vmpressure_prio(gfp_t gfp, struct mem_cgroup *memcg, int prio)
+void vmpressure_prio(gfp_t gfp, struct mem_cgroup *memcg, int prio, int order)
 {
+	if (order > PAGE_ALLOC_COSTLY_ORDER)
+		return;
+
 	/*
 	 * We only use prio for accounting critical level. For more info
 	 * see comment for vmpressure_level_critical_prio variable above.

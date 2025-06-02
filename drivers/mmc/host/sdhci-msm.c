@@ -1202,7 +1202,7 @@ static void sdhci_msm_set_mmc_drv_type(struct sdhci_host *host, u32 opcode,
 int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 {
 	unsigned long flags;
-	int tuning_seq_cnt = 10;
+	int tuning_seq_cnt = 3;
 	u8 phase, *data_buf, tuned_phases[NUM_TUNING_PHASES], tuned_phase_cnt;
 	const u32 *tuning_block_pattern = tuning_block_64;
 	int size = sizeof(tuning_block_64); /* Tuning pattern size in bytes */
@@ -1576,7 +1576,7 @@ static int sdhci_msm_dt_get_array(struct device *dev, const char *prop_name,
 		goto out;
 	}
 
-	arr = devm_kcalloc(dev, sz, sizeof(*arr), GFP_KERNEL);
+	arr = devm_kzalloc(dev, sz * sizeof(*arr), GFP_KERNEL);
 	if (!arr) {
 		ret = -ENOMEM;
 		goto out;
@@ -1761,10 +1761,8 @@ static int sdhci_msm_dt_parse_gpio_info(struct device *dev,
 			goto out;
 		}
 		pin_data->gpio_data->size = cnt;
-		pin_data->gpio_data->gpio = devm_kcalloc(dev,
-							 cnt,
-							 sizeof(struct sdhci_msm_gpio),
-							 GFP_KERNEL);
+		pin_data->gpio_data->gpio = devm_kzalloc(dev, cnt *
+				sizeof(struct sdhci_msm_gpio), GFP_KERNEL);
 
 		if (!pin_data->gpio_data->gpio) {
 			ret = -ENOMEM;

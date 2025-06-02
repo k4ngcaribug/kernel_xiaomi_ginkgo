@@ -1088,6 +1088,9 @@ static int rivafb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	int mode_valid = 0;
 	
 	NVTRACE_ENTER();
+	if (!var->pixclock)
+		return -EINVAL;
+
 	switch (var->bits_per_pixel) {
 	case 1 ... 8:
 		var->red.offset = var->green.offset = var->blue.offset = 0;
@@ -1615,7 +1618,7 @@ static int rivafb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 		u8 *msk = (u8 *) cursor->mask;
 		u8 *src;
 		
-		src = kmalloc_array(s_pitch, cursor->image.height, GFP_ATOMIC);
+		src = kmalloc(s_pitch * cursor->image.height, GFP_ATOMIC);
 
 		if (src) {
 			switch (cursor->rop) {
