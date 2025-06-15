@@ -59,8 +59,9 @@ fi
 # Set function for override kernel name and variants
 if [[ $1 = "-k" || $1 = "--ksu" ]]; then
 echo -e "\nKSU Support, let's Make it On\n"
-curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
 sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
+sed -i 's/CONFIG_KSU_MANUAL_HOOK=n/CONFIG_KSU_MANUAL_HOOK=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
 else
 echo -e "\nKSU not Support, let's Skip\n"
 fi
