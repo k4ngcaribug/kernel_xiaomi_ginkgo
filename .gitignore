@@ -132,5 +132,5 @@ out/
 *.zip
 
 # Ignore KernelSU folders
-KernelSU-Next/
+KernelSU
 drivers/kernelsu
