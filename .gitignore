@@ -128,3 +128,7 @@ kernel/configs/android-*.cfg
 
 # build out dir
 out/
+
+# Ignore KernelSU folders
+KernelSU
+drivers/kernelsu

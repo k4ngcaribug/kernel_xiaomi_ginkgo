@@ -4,6 +4,7 @@
 
 SECONDS=0 # builtin bash timer
 ZIPNAME="neophyte-v1.0-A10-Ginkgo-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
+ZIPNAME_KSU="neophyte-v1.0-A10-Ginkgo-KSU-$(TZ=Asia/Jakarta date +"%Y%m%d-%H%M").zip"
 TC_DIR="$(pwd)/../tc/"
 CLANG_DIR="${TC_DIR}clang"
 AK3_DIR="$HOME/AnyKernel3"
@@ -21,6 +22,23 @@ echo "Cloning failed! Aborting..."
 exit 1
 fi
 fi
+
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+	echo -e "\nCleanup KernelSU first on local build\n"
+	rm -rf KernelSU drivers/kernelsu
+else
+	echo -e "\nSet No KernelSU Install, just skip\n"
+fi
+
+# Set function for override kernel name and variants
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+echo -e "\nKSU Support, let's Make it On\n"
+curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+git apply KernelSU-hook.patch
+sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
+sed -i 's/CONFIG_KSU_MANUAL_HOOK=n/CONFIG_KSU_MANUAL_HOOK=y/g' arch/arm64/configs/vendor/ginkgo_defconfig
+else
+echo -e "\nKSU not Support, let's Skip\n"
 
 mkdir -p out
 make O=out ARCH=arm64 $DEFCONFIG
@@ -54,13 +72,23 @@ cp out/arch/arm64/boot/dtbo.img AnyKernel3
 rm -f *zip
 cd AnyKernel3
 git checkout main &> /dev/null
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+zip -r9 "../$ZIPNAME_KSU" * -x '*.git*' README.md *placeholder
+else
 zip -r9 "../$ZIPNAME" * -x '*.git*' README.md *placeholder
+fi
 cd ..
 rm -rf AnyKernel3
 rm -rf out/arch/arm64/boot
 echo -e "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
+if [[ $1 = "-k" || $1 = "--ksu" ]]; then
+echo "Zip: $ZIPNAME_KSU"
+else
 echo "Zip: $ZIPNAME"
+fi
 else
 echo -e "\nCompilation failed!"
+exit 1
 fi
 echo -e "======================================="
+git restore .
